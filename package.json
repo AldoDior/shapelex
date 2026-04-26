@@ -1,0 +1,24 @@
+{
+  "name": "shapelex-mcp",
+  "version": "0.1.0",
+  "description": "Ephemeral MCP context compressor for reducing LLM read-token usage.",
+  "type": "module",
+  "bin": {
+    "shapelex-mcp": "./bin/shapelex-mcp.js"
+  },
+  "scripts": {
+    "start": "node ./bin/shapelex-mcp.js",
+    "test": "node --test"
+  },
+  "keywords": [
+    "mcp",
+    "llm",
+    "compression",
+    "context",
+    "fingerprinting"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  }
+}
