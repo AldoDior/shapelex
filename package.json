@@ -1,14 +1,15 @@
 {
   "name": "shapelex-mcp",
-  "version": "0.1.0",
-  "description": "Ephemeral MCP context compressor for reducing LLM read-token usage.",
+  "version": "0.2.0",
+  "description": "Ephemeral MCP navigable memory for reducing LLM read-token usage.",
   "type": "module",
   "bin": {
     "shapelex-mcp": "./bin/shapelex-mcp.js"
   },
   "scripts": {
     "start": "node ./bin/shapelex-mcp.js",
-    "test": "node --test"
+    "test": "node --test",
+    "benchmark": "node ./bin/shapelex-benchmark.js"
   },
   "keywords": [
     "mcp",

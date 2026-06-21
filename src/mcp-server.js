@@ -6,6 +6,32 @@ const engine = new ShapeLexEngine();
 
 const tools = [
   {
+    name: "shapelex_compress",
+    title: "Compress into navigable ShapeLex memory",
+    description: "Compress text, code, or conversation into hierarchical navigable memory with risk assessment.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sessionId: { type: "string" },
+        mode: { type: "string", enum: ["text", "code", "conversation"] },
+        label: { type: "string" },
+        text: { type: "string" },
+        messages: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              role: { type: "string" },
+              content: { type: "string" }
+            },
+            required: ["role", "content"]
+          }
+        },
+        budgetTokens: { type: "number" }
+      }
+    }
+  },
+  {
     name: "shapelex_compress_messages",
     description: "Compress conversation messages into compact ShapeLex handles with token-savings estimates.",
     inputSchema: {
@@ -52,6 +78,62 @@ const tools = [
         handle: { type: "string" }
       },
       required: ["handle"]
+    }
+  },
+  {
+    name: "shapelex_search",
+    title: "Search ShapeLex memory",
+    description: "Search compressed ShapeLex memory without expanding full text.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sessionId: { type: "string" },
+        query: { type: "string" },
+        mode: { type: "string", enum: ["text", "code", "conversation"] },
+        limit: { type: "number" }
+      },
+      required: ["query"]
+    }
+  },
+  {
+    name: "shapelex_retrieve",
+    title: "Retrieve ShapeLex levels",
+    description: "Retrieve navigable ShapeLex levels for a document or expand a span URI.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sessionId: { type: "string" },
+        uri: { type: "string" },
+        level: { type: "number" },
+        query: { type: "string" }
+      },
+      required: ["uri"]
+    }
+  },
+  {
+    name: "shapelex_explain",
+    title: "Explain ShapeLex memory",
+    description: "Explain how to use a ShapeLex URI, its levels, and risk policy.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sessionId: { type: "string" },
+        uri: { type: "string" }
+      },
+      required: ["uri"]
+    }
+  },
+  {
+    name: "shapelex_risk_assessment",
+    title: "Assess ShapeLex risk",
+    description: "Assess semantic loss, ambiguity, and expansion need for text or an existing ShapeLex URI.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sessionId: { type: "string" },
+        uri: { type: "string" },
+        text: { type: "string" }
+      }
     }
   },
   {
@@ -123,14 +205,18 @@ async function dispatch(method, params) {
   switch (method) {
     case "initialize":
       return {
-        protocolVersion: params.protocolVersion ?? "2024-11-05",
+        protocolVersion: params.protocolVersion ?? "2025-06-18",
         capabilities: {
-          tools: {}
+          tools: {},
+          resources: {
+            listChanged: true
+          }
         },
         serverInfo: {
           name: "shapelex-mcp",
-          version: "0.1.0"
-        }
+          version: "0.2.0"
+        },
+        instructions: "ShapeLex exposes compressed navigable memory. Use risk assessment before relying on compressed levels and expand sx:// handles for exact wording."
       };
     case "ping":
       return {};
@@ -138,6 +224,10 @@ async function dispatch(method, params) {
       return { tools };
     case "tools/call":
       return callTool(params);
+    case "resources/list":
+      return engine.listResources(params);
+    case "resources/read":
+      return engine.readResource(params);
     default:
       throw new Error(`Unsupported method: ${method}`);
   }
@@ -148,6 +238,9 @@ function callTool(params) {
   let result;
 
   switch (name) {
+    case "shapelex_compress":
+      result = engine.compress(args);
+      break;
     case "shapelex_compress_messages":
       result = engine.compressMessages(args);
       break;
@@ -156,6 +249,18 @@ function callTool(params) {
       break;
     case "shapelex_expand":
       result = engine.expand(args);
+      break;
+    case "shapelex_search":
+      result = engine.search(args);
+      break;
+    case "shapelex_retrieve":
+      result = engine.retrieve(args);
+      break;
+    case "shapelex_explain":
+      result = engine.explain(args);
+      break;
+    case "shapelex_risk_assessment":
+      result = engine.riskAssessment(args);
       break;
     case "shapelex_stats":
       result = engine.stats(args);

@@ -77,3 +77,108 @@ test("MCP tools/list and tools/call expose compression", async () => {
   assert.equal(call.result.structuredContent.sessionId, "mcp");
   assert.ok(call.result.structuredContent.handles.length > 0);
 });
+
+test("compress creates navigable levels with risk assessment", () => {
+  const engine = new ShapeLexEngine();
+  const compressed = engine.compress({
+    sessionId: "nav",
+    mode: "text",
+    label: "policy",
+    text: "Do not delete invoice 123 before approval. Keep the audit trail for 7 years. ".repeat(8)
+  });
+
+  assert.equal(compressed.mode, "text");
+  assert.ok(compressed.uri.startsWith("sx://nav/doc/doc_"));
+  assert.ok(compressed.levels[0].summary.includes("policy"));
+  assert.ok(compressed.levels[2].protectedTerms.includes("not"));
+  assert.ok(compressed.levels[3].criticalExtracts.length > 0);
+  assert.equal(compressed.risk.shouldExpand, true);
+});
+
+test("search and retrieve navigate compressed memory", () => {
+  const engine = new ShapeLexEngine();
+  const compressed = engine.compressText({
+    sessionId: "search",
+    label: "ops",
+    text: "The deployment plan says never reset production cache before backup. Ticket OPS-123 owns rollback."
+  });
+
+  const found = engine.search({ sessionId: "search", query: "rollback OPS-123" });
+  assert.equal(found.results.length, 1);
+
+  const retrieved = engine.retrieve({ sessionId: "search", uri: compressed.uri, level: 3 });
+  assert.ok(retrieved.levels[3].criticalExtracts.some((item) => item.text.includes("OPS-123")));
+});
+
+test("code mode extracts imports symbols references and errors", () => {
+  const engine = new ShapeLexEngine();
+  const code = `
+import fs from "node:fs";
+
+export class RepoReader {
+  readFile(path) {
+    if (!path) throw new Error("missing path");
+    return fs.readFileSync(path, "utf8");
+  }
+}
+`;
+  const compressed = engine.compressText({ sessionId: "code", mode: "code", label: "repo-reader.js", text: code });
+
+  assert.equal(compressed.code.imports.length, 1);
+  assert.ok(compressed.code.symbols.some((symbol) => symbol.name === "RepoReader"));
+  assert.ok(compressed.code.symbols.some((symbol) => symbol.name === "readFile"));
+  assert.ok(compressed.code.errors.length > 0);
+  assert.equal(compressed.risk.shouldExpand, true);
+});
+
+test("conversation mode preserves decisions constraints todos and changes", () => {
+  const engine = new ShapeLexEngine();
+  const compressed = engine.compressMessages({
+    sessionId: "chat-memory",
+    messages: [
+      { role: "user", content: "Decidimos que ShapeLex no debe reconstruir todo desde texto comprimido." },
+      { role: "assistant", content: "Pendiente: implementar search y risk assessment." },
+      { role: "user", content: "Cambio de opinion: mejor no persistir nada todavia." }
+    ]
+  });
+
+  assert.equal(compressed.conversation.decisions.length, 1);
+  assert.ok(compressed.conversation.constraints.length >= 1);
+  assert.ok(compressed.conversation.todos.length >= 1);
+  assert.equal(compressed.conversation.changesOfMind.length, 1);
+});
+
+test("MCP resources expose ShapeLex documents and levels", async () => {
+  const call = await handleJsonRpc({
+    jsonrpc: "2.0",
+    id: 10,
+    method: "tools/call",
+    params: {
+      name: "shapelex_compress",
+      arguments: {
+        sessionId: "resources",
+        mode: "text",
+        label: "resource-demo",
+        text: "Never approve payment batch 42 without dual approval."
+      }
+    }
+  });
+
+  const listed = await handleJsonRpc({
+    jsonrpc: "2.0",
+    id: 11,
+    method: "resources/list",
+    params: { sessionId: "resources" }
+  });
+
+  assert.ok(listed.result.resources.some((resource) => resource.uri === call.result.structuredContent.uri));
+
+  const read = await handleJsonRpc({
+    jsonrpc: "2.0",
+    id: 12,
+    method: "resources/read",
+    params: { uri: `${call.result.structuredContent.uri}/level/3` }
+  });
+
+  assert.ok(read.result.contents[0].text.includes("dual approval"));
+});
