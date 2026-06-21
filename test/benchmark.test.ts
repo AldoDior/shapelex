@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { runBenchmark } from "../bin/shapelex-benchmark.js";
+import { runBenchmark } from "../src/shapelex-benchmark.js";
 
 test("benchmark reports measurable token reduction and fact recovery", () => {
   const report = runBenchmark();

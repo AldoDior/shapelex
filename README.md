@@ -2,7 +2,9 @@
 
 ShapeLex is an experimental MCP navigable memory layer for reducing LLM read-token usage.
 
-The MVP runs locally, keeps original text only in ephemeral memory, and gives agents compact `sx://` handles they can expand when exact wording matters.
+The MVP runs locally, keeps original text in a local ShapeLex store, and gives agents compact `sx://` handles they can expand when exact wording matters.
+
+ShapeLex is implemented in TypeScript and compiles to `dist/` for runtime use.
 
 ShapeLex is not designed to reconstruct full text from a lossy compressed prompt. It gives agents a hierarchy:
 
@@ -18,9 +20,16 @@ ShapeLex is not designed to reconstruct full text from a lossy compressed prompt
 npm start
 ```
 
+By default, the MCP server persists local memory in `.shapelex/`, which is ignored by git. Override the location with:
+
+```bash
+SHAPELEX_STORE_DIR=/path/to/store npm start
+```
+
 Run tests and the reproducible benchmark:
 
 ```bash
+npm run build
 npm test
 npm run benchmark
 ```
@@ -58,8 +67,8 @@ ShapeLex also exposes `sx://` documents and levels through MCP resources:
 ## Design Constraints
 
 - No database.
-- No persistent memory.
+- Local JSON persistence only; SQLite is a planned upgrade, not implemented yet.
 - No external LLM or embedding API.
-- Exact reconstruction works only while the MCP process is alive.
+- Exact reconstruction works while the local ShapeLex store is available.
 
 ShapeLex does not assume compressed word-shapes preserve perfect meaning. It preserves high-risk cues such as negation, numbers, dates, operators, code signals, decisions, and explicit instructions. Each document and span includes a risk assessment so the agent can decide when compressed context is enough and when exact expansion is required.

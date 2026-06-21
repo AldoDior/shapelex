@@ -2,7 +2,9 @@ import process from "node:process";
 import readline from "node:readline";
 import { ShapeLexEngine } from "./shapelex.js";
 
-const engine = new ShapeLexEngine();
+const engine = new ShapeLexEngine({
+  storageDir: process.env.SHAPELEX_STORE_DIR ?? ".shapelex"
+});
 
 const tools = [
   {
@@ -158,7 +160,7 @@ const tools = [
   }
 ];
 
-export function startMcpServer({ input = process.stdin, output = process.stdout } = {}) {
+export function startMcpServer({ input = process.stdin, output = process.stdout }: any = {}) {
   const rl = readline.createInterface({ input });
 
   rl.on("line", async (line) => {
@@ -180,7 +182,7 @@ export function startMcpServer({ input = process.stdin, output = process.stdout 
   });
 }
 
-export async function handleJsonRpc(request) {
+export async function handleJsonRpc(request: any): Promise<any> {
   if (request.jsonrpc !== "2.0") {
     return errorResponse(request.id ?? null, new Error("Expected JSON-RPC 2.0 request"));
   }
@@ -201,7 +203,7 @@ export async function handleJsonRpc(request) {
   }
 }
 
-async function dispatch(method, params) {
+async function dispatch(method: any, params: any): Promise<any> {
   switch (method) {
     case "initialize":
       return {
@@ -214,7 +216,7 @@ async function dispatch(method, params) {
         },
         serverInfo: {
           name: "shapelex-mcp",
-          version: "0.2.0"
+          version: "0.4.0"
         },
         instructions: "ShapeLex exposes compressed navigable memory. Use risk assessment before relying on compressed levels and expand sx:// handles for exact wording."
       };
@@ -233,7 +235,7 @@ async function dispatch(method, params) {
   }
 }
 
-function callTool(params) {
+function callTool(params: any): any {
   const { name, arguments: args = {} } = params;
   let result;
 
@@ -283,7 +285,7 @@ function callTool(params) {
   };
 }
 
-function errorResponse(id, error) {
+function errorResponse(id: any, error: any): any {
   return {
     jsonrpc: "2.0",
     id,

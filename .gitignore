@@ -23,6 +23,7 @@ coverage/
 
 # Caches and temporary files
 .cache/
+.npm-cache/
 .parcel-cache/
 .turbo/
 .vite/
@@ -37,6 +38,7 @@ temp/
 *.sqlite
 *.sqlite3
 *.db
+.shapelex/
 
 # Local/private research notes
 research/local/

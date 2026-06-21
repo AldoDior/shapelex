@@ -1,15 +1,18 @@
 {
   "name": "shapelex-mcp",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "description": "Ephemeral MCP navigable memory for reducing LLM read-token usage.",
   "type": "module",
+  "main": "./dist/src/shapelex.js",
+  "types": "./dist/src/shapelex.d.ts",
   "bin": {
     "shapelex-mcp": "./bin/shapelex-mcp.js"
   },
   "scripts": {
-    "start": "node ./bin/shapelex-mcp.js",
-    "test": "node --test",
-    "benchmark": "node ./bin/shapelex-benchmark.js"
+    "build": "tsc -p tsconfig.json",
+    "start": "npm run build && node ./bin/shapelex-mcp.js",
+    "test": "npm run build && node --test \"dist/test/*.test.js\"",
+    "benchmark": "npm run build && node ./dist/src/shapelex-benchmark.js"
   },
   "keywords": [
     "mcp",
@@ -21,5 +24,9 @@
   "license": "MIT",
   "engines": {
     "node": ">=18"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.0",
+    "typescript": "^6.0.3"
   }
 }

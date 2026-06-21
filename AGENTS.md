@@ -86,14 +86,16 @@ Work like a senior/staff software engineer. Optimize for correctness, maintainab
 ## Project Conventions Detected
 
 - Runtime: Node.js with ESM modules (`"type": "module"`).
+- Source language: TypeScript compiled to `dist/`.
 - Minimum Node version: `>=18`.
 - Tests: built-in `node:test` with `node:assert/strict`.
 - Main source directory: `src/`.
 - CLI/bin scripts: `bin/`.
 - Tests directory: `test/`.
 - Research and architecture notes: `research/`.
-- MCP server entrypoint: `src/mcp-server.js`.
-- Core engine: `src/shapelex.js`.
+- MCP server source: `src/mcp-server.ts`.
+- Core engine source: `src/shapelex.ts`.
+- Runtime output: `dist/`.
 - Package exposes `shapelex-mcp` via `bin/shapelex-mcp.js`.
 - Code style: ESM imports, semicolons, two-space indentation, double quotes, explicit helper functions, deterministic pure helpers where practical.
 
@@ -102,13 +104,13 @@ Work like a senior/staff software engineer. Optimize for correctness, maintainab
 These commands are confidently detected from `package.json`:
 
 - Start MCP server: `npm start`
+- Build TypeScript: `npm run build`
 - Run tests: `npm test`
 - Run benchmark: `npm run benchmark`
 
 Not configured in `package.json` and needing confirmation before use:
 
 - Lint command: not detected.
-- Build command: not detected.
 - Format command: not detected.
 
 ## ShapeLex-Specific Guidance
@@ -118,5 +120,6 @@ Not configured in `package.json` and needing confirmation before use:
 - Risk assessment is part of correctness. When compressed output may omit important semantics, expose `shouldExpand` or `mustExpand` rather than pretending the summary is enough.
 - Protect negations, numbers, dates, operators, code signals, decisions, user constraints, and explicit instructions.
 - Do not treat code as plain text when the task is about repository understanding; preserve imports, symbols, references, dependencies, errors, and stack traces where relevant.
-- Do not introduce persistent storage, databases, external LLM calls, embedding APIs, or network dependencies unless explicitly requested.
+- Keep local persistence private by default: `.shapelex/` is ignored and should not be committed.
+- Do not introduce databases, external LLM calls, embedding APIs, or network dependencies unless explicitly requested.
 - Keep benchmark changes reproducible and deterministic.

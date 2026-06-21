@@ -1,6 +1,10 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 
 const DEFAULT_SESSION_ID = "default";
+const STORE_VERSION = 1;
+const DEFAULT_STORE_FILE = "shapelex-store.json";
 const LONG_SPAN_CHARS = 240;
 const RECENT_MESSAGE_CHARS = 900;
 const MAX_ANCHORS = 12;
@@ -29,11 +33,20 @@ const ACTION_WORDS = new Set([
 ]);
 
 export class ShapeLexEngine {
-  constructor() {
+  sessions: Map<string, any>;
+  persistent: boolean;
+  storageDir?: string;
+  storePath?: string;
+
+  constructor({ storageDir, persistent = Boolean(storageDir) }: { storageDir?: string; persistent?: boolean } = {}) {
     this.sessions = new Map();
+    this.persistent = persistent;
+    this.storageDir = storageDir ? path.resolve(storageDir) : undefined;
+    this.storePath = this.storageDir ? path.join(this.storageDir, DEFAULT_STORE_FILE) : undefined;
+    this.#loadStore();
   }
 
-  compress(input) {
+  compress(input: any) {
     const mode = input.mode ?? (input.messages ? "conversation" : "text");
     if (Array.isArray(input.messages)) {
       return this.compressMessages({ ...input, mode: "conversation" });
@@ -41,7 +54,7 @@ export class ShapeLexEngine {
     return this.compressText({ ...input, mode });
   }
 
-  compressText({ sessionId = DEFAULT_SESSION_ID, text, label = "text", mode = "text", budgetTokens } = {}) {
+  compressText({ sessionId = DEFAULT_SESSION_ID, text, label = "text", mode = "text", budgetTokens }: any = {}) {
     assertString(text, "text");
     const session = this.#session(sessionId);
     const document = this.#createDocument(session, { text, label, mode });
@@ -68,7 +81,7 @@ export class ShapeLexEngine {
     return payload;
   }
 
-  compressMessages({ sessionId = DEFAULT_SESSION_ID, messages, budgetTokens, label = "conversation" } = {}) {
+  compressMessages({ sessionId = DEFAULT_SESSION_ID, messages, budgetTokens, label = "conversation" }: any = {}) {
     if (!Array.isArray(messages)) {
       throw new TypeError("messages must be an array");
     }
@@ -126,7 +139,7 @@ export class ShapeLexEngine {
     return payload;
   }
 
-  expand({ sessionId = DEFAULT_SESSION_ID, handle }) {
+  expand({ sessionId = DEFAULT_SESSION_ID, handle }: any): any {
     assertString(handle, "handle");
     const session = this.sessions.get(sessionId);
     if (!session) {
@@ -139,15 +152,17 @@ export class ShapeLexEngine {
       if (!document) {
         throw new Error(`Unknown ShapeLex document: ${handle}`);
       }
+      assertDocumentIntegrity(document, handle);
       session.lastAccessedAt = new Date().toISOString();
       return {
         handle,
         text: document.text,
-        metadata: {
+      metadata: {
           documentId: document.id,
           uri: document.uri,
           label: document.label,
           mode: document.mode,
+          checksum: document.checksum,
           risk: document.risk
         }
       };
@@ -157,6 +172,7 @@ export class ShapeLexEngine {
     if (!span) {
       throw new Error(`Unknown ShapeLex handle: ${handle}`);
     }
+    assertSpanIntegrity(span, handle);
 
     session.lastAccessedAt = new Date().toISOString();
     return {
@@ -166,7 +182,7 @@ export class ShapeLexEngine {
     };
   }
 
-  search({ sessionId = DEFAULT_SESSION_ID, query, mode, limit = 8 } = {}) {
+  search({ sessionId = DEFAULT_SESSION_ID, query, mode, limit = 8 }: any = {}) {
     assertString(query, "query");
     const session = this.sessions.get(sessionId);
     if (!session) {
@@ -203,7 +219,7 @@ export class ShapeLexEngine {
     };
   }
 
-  retrieve({ sessionId = DEFAULT_SESSION_ID, uri, level = 1, query } = {}) {
+  retrieve({ sessionId = DEFAULT_SESSION_ID, uri, level = 1, query }: any = {}): any {
     assertString(uri, "uri");
     const session = this.sessions.get(sessionId);
     if (!session) {
@@ -228,7 +244,7 @@ export class ShapeLexEngine {
       }
     }
 
-    const response = {
+    const response: any = {
       sessionId,
       documentId: document.id,
       uri: document.uri,
@@ -247,7 +263,7 @@ export class ShapeLexEngine {
     return response;
   }
 
-  explain({ sessionId = DEFAULT_SESSION_ID, uri } = {}) {
+  explain({ sessionId = DEFAULT_SESSION_ID, uri }: any = {}) {
     assertString(uri, "uri");
     const session = this.sessions.get(sessionId);
     if (!session) {
@@ -280,7 +296,7 @@ export class ShapeLexEngine {
     };
   }
 
-  riskAssessment({ sessionId = DEFAULT_SESSION_ID, uri, text } = {}) {
+  riskAssessment({ sessionId = DEFAULT_SESSION_ID, uri, text }: any = {}) {
     if (text !== undefined) {
       assertString(text, "text");
       const analysis = analyzeRisk(text, { mode: "text", criticalExtracts: extractCriticalExtracts(text) });
@@ -307,7 +323,7 @@ export class ShapeLexEngine {
     return document.risk;
   }
 
-  listResources({ sessionId } = {}) {
+  listResources({ sessionId }: any = {}) {
     const sessions = sessionId ? [this.sessions.get(sessionId)].filter(Boolean) : [...this.sessions.values()];
     const resources = [];
 
@@ -335,7 +351,7 @@ export class ShapeLexEngine {
     return { resources };
   }
 
-  readResource({ uri }) {
+  readResource({ uri }: any) {
     assertString(uri, "uri");
     const parsed = parseResourceUri(uri);
     const session = this.sessions.get(parsed.sessionId);
@@ -362,7 +378,7 @@ export class ShapeLexEngine {
     };
   }
 
-  stats({ sessionId } = {}) {
+  stats({ sessionId }: any = {}) {
     const sessions = sessionId ? [this.sessions.get(sessionId)].filter(Boolean) : [...this.sessions.values()];
     const sessionStats = sessions.map((session) => ({
       sessionId: session.id,
@@ -377,18 +393,31 @@ export class ShapeLexEngine {
       sessions: sessionStats,
       activeDocuments: sessionStats.reduce((sum, item) => sum + item.activeDocuments, 0),
       activeHandles: sessionStats.reduce((sum, item) => sum + item.activeHandles, 0),
-      approxMemoryBytes: sessionStats.reduce((sum, item) => sum + item.approxMemoryBytes, 0)
+      approxMemoryBytes: sessionStats.reduce((sum, item) => sum + item.approxMemoryBytes, 0),
+      persistence: {
+        enabled: this.persistent,
+        storePath: this.storePath
+      }
     };
   }
 
-  clear({ sessionId } = {}) {
+  clear({ sessionId }: any = {}) {
     if (sessionId) {
       this.sessions.delete(sessionId);
     } else {
       this.sessions.clear();
     }
 
+    this.#saveStore();
     return { cleared: true };
+  }
+
+  flush() {
+    this.#saveStore();
+    return {
+      persisted: this.persistent,
+      storePath: this.storePath
+    };
   }
 
   #session(sessionId) {
@@ -414,9 +443,9 @@ export class ShapeLexEngine {
     return session;
   }
 
-  #createDocument(session, { text, label, mode, messages }) {
+  #createDocument(session: any, { text, label, mode, messages }: any) {
     const documentId = `doc_${session.nextDocument++}`;
-    const document = {
+    const document: any = {
       id: documentId,
       uri: `sx://${session.id}/doc/${documentId}`,
       label,
@@ -459,6 +488,7 @@ export class ShapeLexEngine {
     document.levels = buildLevels(document, { anchors, protectedTerms, criticalExtracts, code, conversation });
 
     session.documents.set(document.id, document);
+    this.#saveStore();
     return document;
   }
 
@@ -480,6 +510,7 @@ export class ShapeLexEngine {
       index: span.index,
       mode: span.mode,
       charLength: span.text.length,
+      checksum: shortHash(span.text, 24),
       tokenEstimate: estimateTokens(span.text),
       anchors: analysis.anchors,
       protectedTerms: analysis.protectedTerms,
@@ -495,6 +526,64 @@ export class ShapeLexEngine {
     session.spanToDocument.set(spanId, document.id);
 
     return metadata;
+  }
+
+  #loadStore() {
+    if (!this.persistent || !this.storePath || !fs.existsSync(this.storePath)) {
+      return;
+    }
+
+    const raw = fs.readFileSync(this.storePath, "utf8");
+    const store = JSON.parse(raw);
+    if (store.version !== STORE_VERSION || !Array.isArray(store.sessions)) {
+      throw new Error(`Unsupported ShapeLex store format: ${this.storePath}`);
+    }
+
+    for (const item of store.sessions) {
+      const session = {
+        id: item.id,
+        createdAt: item.createdAt,
+        lastAccessedAt: item.lastAccessedAt,
+        nextSpan: item.nextSpan,
+        nextDocument: item.nextDocument,
+        documents: new Map(),
+        spans: new Map(),
+        spanToDocument: new Map()
+      };
+
+      for (const document of item.documents ?? []) {
+        session.documents.set(document.id, document);
+      }
+      for (const span of item.spans ?? []) {
+        session.spans.set(span.metadata.spanId, span);
+        session.spanToDocument.set(span.metadata.spanId, span.metadata.documentId);
+      }
+      this.sessions.set(session.id, session);
+    }
+  }
+
+  #saveStore() {
+    if (!this.persistent || !this.storePath || !this.storageDir) {
+      return;
+    }
+
+    fs.mkdirSync(this.storageDir, { recursive: true });
+    const payload = {
+      version: STORE_VERSION,
+      savedAt: new Date().toISOString(),
+      sessions: [...this.sessions.values()].map((session) => ({
+        id: session.id,
+        createdAt: session.createdAt,
+        lastAccessedAt: session.lastAccessedAt,
+        nextSpan: session.nextSpan,
+        nextDocument: session.nextDocument,
+        documents: [...session.documents.values()],
+        spans: [...session.spans.values()]
+      }))
+    };
+    const tmpPath = `${this.storePath}.${process.pid}.tmp`;
+    fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2));
+    fs.renameSync(tmpPath, this.storePath);
   }
 }
 
@@ -574,7 +663,7 @@ export function analyzeSpan(text) {
   };
 }
 
-function buildLevels(document, { anchors, protectedTerms, criticalExtracts, code, conversation }) {
+function buildLevels(document: any, { anchors, protectedTerms, criticalExtracts, code, conversation }: any): any {
   const semanticMap = [];
   semanticMap.push({ kind: "document", label: document.label, mode: document.mode, handle: document.uri });
   if (protectedTerms.length > 0) {
@@ -619,7 +708,7 @@ function buildLevels(document, { anchors, protectedTerms, criticalExtracts, code
   };
 }
 
-function summarizeDocument(document, { anchors, code, conversation }) {
+function summarizeDocument(document: any, { anchors, code, conversation }: any) {
   if (document.mode === "code" && code) {
     return `${document.label}: code memory with ${code.imports.length} imports, ${code.symbols.length} symbols, ${code.errors.length} errors, and ${document.handles.length} expandable spans.`;
   }
@@ -630,7 +719,7 @@ function summarizeDocument(document, { anchors, code, conversation }) {
   return `${document.label}: compressed ${document.mode} memory about ${topic}, with ${document.handles.length} expandable spans.`;
 }
 
-function renderNavigableDocument(document) {
+function renderNavigableDocument(document: any) {
   return withInstruction([
     `${document.uri} ${document.mode} risk=${document.risk.level} expand=${document.risk.shouldExpand}`,
     `L0 ${document.levels[0].summary}`,
@@ -640,11 +729,11 @@ function renderNavigableDocument(document) {
   ].join("\n\n"));
 }
 
-function renderLevelSummary(document) {
+function renderLevelSummary(document: any) {
   return `ShapeLex document ${document.uri}\nLevel 0: ${document.levels[0].summary}\nRisk: ${document.risk.level} (${document.risk.score}) mustExpand=${document.risk.mustExpand}`;
 }
 
-function resultPayload(sessionId, compressedText, handles, rawText) {
+function resultPayload(sessionId: any, compressedText: any, handles: any, rawText: any): any {
   const rawTokenEstimate = estimateTokens(rawText);
   const compressedTokenEstimate = estimateTokens(compressedText);
 
@@ -660,7 +749,7 @@ function resultPayload(sessionId, compressedText, handles, rawText) {
   };
 }
 
-function renderHandle(handle) {
+function renderHandle(handle: any) {
   const anchors = handle.anchors.length > 0 ? handle.anchors.join("|") : "none";
   const protectedTerms = handle.protectedTerms.length > 0 ? ` protect=${handle.protectedTerms.join("|")}` : "";
   const fps = handle.fingerprints.slice(0, 4).join(",");
@@ -763,7 +852,7 @@ function extractCriticalExtracts(text) {
   }).slice(0, 10);
 }
 
-function analyzeRisk(text, { mode, criticalExtracts = [], code, conversation, protectedTerms = [] } = {}) {
+function analyzeRisk(text: any, { mode, criticalExtracts = [], code, conversation, protectedTerms = [] }: any = {}) {
   const reasons = [];
   let score = 0.08;
   const input = String(text ?? "");
@@ -823,7 +912,7 @@ function confidenceFromScore(score) {
   return Number(Math.max(0.05, 1 - score).toFixed(2));
 }
 
-function analyzeCode(text, document) {
+function analyzeCode(text: any, document: any) {
   const lines = String(text ?? "").split("\n");
   const imports = [];
   const symbols = [];
@@ -894,7 +983,7 @@ function analyzeCode(text, document) {
   };
 }
 
-function analyzeConversation(messagesOrText, document) {
+function analyzeConversation(messagesOrText: any, document: any) {
   const entries = Array.isArray(messagesOrText)
     ? messagesOrText.map((message, index) => ({
       role: String(message.role ?? "unknown"),
@@ -903,7 +992,7 @@ function analyzeConversation(messagesOrText, document) {
     }))
     : [{ role: "unknown", index: 0, content: String(messagesOrText ?? "") }];
 
-  const memory = {
+  const memory: any = {
     decisions: [],
     constraints: [],
     preferences: [],
@@ -946,7 +1035,7 @@ function analyzeConversation(messagesOrText, document) {
   return memory;
 }
 
-function nearestHandle(document, position) {
+function nearestHandle(document: any, position: any) {
   if (!document.handles.length) {
     return document.uri;
   }
@@ -954,7 +1043,7 @@ function nearestHandle(document, position) {
   return document.handles[index]?.uri ?? document.uri;
 }
 
-function scoreDocument(document, queryTokens) {
+function scoreDocument(document: any, queryTokens: any[]) {
   const haystack = [
     document.label,
     document.mode,
@@ -994,7 +1083,7 @@ function parseResourceUri(uri) {
   };
 }
 
-function sanitizeResourcePayload(payload) {
+function sanitizeResourcePayload(payload: any) {
   if (!payload || typeof payload !== "object") {
     return payload;
   }
@@ -1011,6 +1100,26 @@ function sanitizeResourcePayload(payload) {
     };
   }
   return payload;
+}
+
+function assertDocumentIntegrity(document: any, handle: any) {
+  if (!document.checksum) {
+    return;
+  }
+  const actual = shortHash(document.text, 24);
+  if (actual !== document.checksum) {
+    throw new Error(`ShapeLex document checksum mismatch: ${handle}`);
+  }
+}
+
+function assertSpanIntegrity(span: any, handle: any) {
+  if (!span.metadata?.checksum) {
+    return;
+  }
+  const actual = shortHash(span.text, 24);
+  if (actual !== span.metadata.checksum) {
+    throw new Error(`ShapeLex span checksum mismatch: ${handle}`);
+  }
 }
 
 function levelDescription(level) {

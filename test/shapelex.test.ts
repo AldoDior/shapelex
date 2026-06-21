@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { ShapeLexEngine, charShape, fingerprintTokens } from "../src/shapelex.js";
 import { handleJsonRpc } from "../src/mcp-server.js";
@@ -55,6 +58,30 @@ test("clear removes active handles", () => {
   assert.ok(engine.stats({ sessionId: "clearme" }).activeHandles > 0);
   engine.clear({ sessionId: "clearme" });
   assert.throws(() => engine.expand({ sessionId: "clearme", handle: compressed.handles[0].uri }), /Unknown ShapeLex session/);
+});
+
+test("persistent storage restores expandable handles across engine instances", () => {
+  const storageDir = fs.mkdtempSync(path.join(os.tmpdir(), "shapelex-store-"));
+  const first = new ShapeLexEngine({ storageDir });
+  const text = Array.from({ length: 12 }, () => "Do not rotate credential 123 without approval.").join(" ");
+  const compressed = first.compressText({ sessionId: "persist", text, label: "persistent-demo" });
+  first.flush();
+
+  const second = new ShapeLexEngine({ storageDir });
+  const expanded = second.expand({ sessionId: "persist", handle: compressed.handles[0].uri });
+
+  assert.equal(expanded.text, text.trim());
+  assert.equal(second.stats({ sessionId: "persist" }).activeHandles, compressed.handles.length);
+});
+
+test("persistent clear removes sessions from the store", () => {
+  const storageDir = fs.mkdtempSync(path.join(os.tmpdir(), "shapelex-clear-"));
+  const first = new ShapeLexEngine({ storageDir });
+  first.compressText({ sessionId: "clear-persist", text: "Important local memory. ".repeat(20) });
+  first.clear({ sessionId: "clear-persist" });
+
+  const second = new ShapeLexEngine({ storageDir });
+  assert.equal(second.stats({ sessionId: "clear-persist" }).activeHandles, 0);
 });
 
 test("MCP tools/list and tools/call expose compression", async () => {

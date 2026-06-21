@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 import { performance } from "node:perf_hooks";
 import { ShapeLexEngine, estimateTokens } from "../src/shapelex.js";
 
