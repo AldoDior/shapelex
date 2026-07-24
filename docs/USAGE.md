@@ -8,6 +8,7 @@ The local store is required because a handle is only a pointer. Without stored e
 
 ```powershell
 npm install
+npm run doctor
 npm test
 npm run build
 ```
@@ -17,6 +18,17 @@ Start the MCP server:
 ```powershell
 npm start
 ```
+
+`npm run doctor` checks Node.js version, compiled output, project MCP configs, private-store git ignores, and lean-mode tool exposure. Run it after cloning, after changing configs, or before helping another user set up ShapeLex.
+
+For direct package usage after publishing:
+
+```bash
+npx -y shapelex-mcp --doctor
+npx -y shapelex-mcp
+```
+
+Prefer `node ./bin/shapelex-mcp.js` or `npx -y shapelex-mcp` in MCP configs. That avoids shell-specific launchers and is smoother across Windows, macOS, and Linux. On Windows, it also avoids PowerShell execution-policy issues that can happen with `.ps1` command shims.
 
 By default, local memory is stored in `.shapelex/`, which is ignored by git. To keep memory somewhere else:
 
@@ -39,7 +51,7 @@ $env:SHAPELEX_MAX_STORE_MB="250"
 npm start
 ```
 
-For Codex, use the lean MCP tool set to reduce tool-schema overhead:
+For Codex, Claude Code, and Cursor, use the lean MCP tool set to reduce tool-schema overhead:
 
 ```powershell
 $env:SHAPELEX_TOOLSET="lean"
@@ -48,21 +60,37 @@ npm start
 
 Lean mode exposes the normal low-overhead workflow: compress, get compact context, expand exact handles, inspect memory, and clean sessions. Use `SHAPELEX_TOOLSET="full"` when you want lower-level search, retrieve, risk, and debug tools.
 
+The live Codex benchmark showed why this matters: exposing every MCP tool can cost more tokens than raw context. Lean mode fixed that by reducing the tool list loaded into the model.
+
 ## Claude Code
+
+This repo includes a project-scoped Claude Code MCP config:
+
+```text
+.mcp.json
+```
+
+Claude Code may ask you to approve project MCP servers the first time it sees this file. That is expected.
 
 For local source usage after `npm run build`:
 
-```powershell
-claude mcp add --transport stdio shapelex -- node C:\path\to\ShapeLex\bin\shapelex-mcp.js
+```bash
+claude mcp add --transport stdio --env SHAPELEX_STORE_DIR=.shapelex-claude --env SHAPELEX_MAX_STORE_MB=100 --env SHAPELEX_TOOLSET=lean shapelex -- node ./bin/shapelex-mcp.js
 ```
 
 For package usage after ShapeLex is published to npm:
 
-```powershell
-claude mcp add --transport stdio shapelex -- cmd /c npx -y shapelex-mcp
+```bash
+claude mcp add --transport stdio --env SHAPELEX_STORE_DIR=.shapelex-claude --env SHAPELEX_MAX_STORE_MB=100 --env SHAPELEX_TOOLSET=lean shapelex -- npx -y shapelex-mcp
 ```
 
-Use `claude mcp list` and `/mcp` in Claude Code to verify that the server is connected.
+On Windows, if Claude Code cannot launch `npx` directly, use this command form instead:
+
+```powershell
+claude mcp add --transport stdio --env SHAPELEX_STORE_DIR=.shapelex-claude --env SHAPELEX_MAX_STORE_MB=100 --env SHAPELEX_TOOLSET=lean shapelex -- cmd /c npx -y shapelex-mcp
+```
+
+Use `claude mcp list` and `/mcp` in Claude Code to verify that the server is connected. The `/mcp` panel shows the tool count, so it is a quick way to confirm ShapeLex is not exposing the full tool set by accident.
 
 ## Codex
 
@@ -101,7 +129,13 @@ Use the bundled `skills/shapelex-memory` skill instructions alongside the MCP se
 
 ## Cursor
 
-Cursor supports MCP servers through `.cursor/mcp.json` for a project or `~/.cursor/mcp.json` globally.
+This repo includes a project-scoped Cursor MCP config:
+
+```text
+.cursor/mcp.json
+```
+
+Cursor supports MCP servers through `.cursor/mcp.json` for a project or `~/.cursor/mcp.json` globally. Cursor can also toggle MCP tools from chat; disabled tools are not loaded into context. ShapeLex uses lean mode by default so the useful tools stay available without loading the bigger debug surface.
 
 After ShapeLex is published to npm, use:
 
@@ -138,6 +172,8 @@ For local source usage after `npm run build`, use:
 ```
 
 In Cursor chat, ask: "Use ShapeLex memory overview. What memory session am I using?" The agent should call `shapelex_memory_overview`.
+
+If Cursor shows more ShapeLex tools than expected, disable the lower-level tools in Cursor or set `SHAPELEX_TOOLSET` back to `lean`.
 
 ## Tool Workflow
 
@@ -284,9 +320,12 @@ ShapeLex does not silently delete old memory. Silent cleanup can break `sx://` h
 Before publishing to npm:
 
 ```powershell
+npm run doctor
 npm test
 npm run benchmark
 npm pack --dry-run --cache .\.npm-cache
 ```
 
 The tarball should include `bin/`, `dist/`, `docs/`, `skills/`, `README.md`, `LICENSE`, `SECURITY.md`, and `package.json`. It should not include `.shapelex/`, `.npm-cache/`, `node_modules/`, private research notes, logs, or local config.
+
+Publishing public npm packages is free. You need a free npm account. Unscoped packages such as `shapelex-mcp` are public by default; scoped packages such as `@yourname/shapelex-mcp` need `npm publish --access public` if you want them public.

@@ -42,6 +42,8 @@ temp/
 *.db
 .shapelex/
 .shapelex-codex/
+.shapelex-cursor/
+.shapelex-claude/
 
 # Local/private research notes
 research/local/
