@@ -1,5 +1,9 @@
 # ShapeLex
 
+[English](#english) | [Español](docs/USAGE.es.md)
+
+## English
+
 ShapeLex is a local MCP navigable memory layer for reducing LLM read-token usage.
 
 ShapeLex runs locally, keeps original text in a local ShapeLex store, and gives agents compact `sx://` handles they can expand when exact wording matters.
@@ -65,19 +69,21 @@ npm test
 npm run benchmark
 ```
 
-For package-style usage after publishing:
+For package-style usage from npm:
 
 ```bash
-npx shapelex-mcp
+npx -y shapelex-mcp
 ```
 
 Check a machine setup:
 
 ```bash
-npx shapelex-mcp --doctor
+npx -y shapelex-mcp --doctor
 ```
 
 See [docs/USAGE.md](docs/USAGE.md) for Codex, Claude Code, and Cursor setup examples.
+
+Spanish setup instructions are available in [docs/USAGE.es.md](docs/USAGE.es.md).
 
 ## MCP Tools
 

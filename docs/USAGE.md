@@ -21,7 +21,7 @@ npm start
 
 `npm run doctor` checks Node.js version, compiled output, project MCP configs, private-store git ignores, and lean-mode tool exposure. Run it after cloning, after changing configs, or before helping another user set up ShapeLex.
 
-For direct package usage after publishing:
+For direct package usage from npm:
 
 ```bash
 npx -y shapelex-mcp --doctor
@@ -78,7 +78,7 @@ For local source usage after `npm run build`:
 claude mcp add --transport stdio --env SHAPELEX_STORE_DIR=.shapelex-claude --env SHAPELEX_MAX_STORE_MB=100 --env SHAPELEX_TOOLSET=lean shapelex -- node ./bin/shapelex-mcp.js
 ```
 
-For package usage after ShapeLex is published to npm:
+For package usage from npm:
 
 ```bash
 claude mcp add --transport stdio --env SHAPELEX_STORE_DIR=.shapelex-claude --env SHAPELEX_MAX_STORE_MB=100 --env SHAPELEX_TOOLSET=lean shapelex -- npx -y shapelex-mcp
@@ -137,7 +137,7 @@ This repo includes a project-scoped Cursor MCP config:
 
 Cursor supports MCP servers through `.cursor/mcp.json` for a project or `~/.cursor/mcp.json` globally. Cursor can also toggle MCP tools from chat; disabled tools are not loaded into context. ShapeLex uses lean mode by default so the useful tools stay available without loading the bigger debug surface.
 
-After ShapeLex is published to npm, use:
+For package usage from npm, use:
 
 ```json
 {
