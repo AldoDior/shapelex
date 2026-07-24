@@ -18,6 +18,8 @@ ShapeLex is local-only by design:
 
 ShapeLex mainly saves input tokens. It reduces old context that the model has to reread. It does not automatically shorten the model's final answer; for output tokens, tell the agent to answer briefly and spend tokens on code, tests, and exact next steps.
 
+ShapeLex should be agent-driven after setup. You should not need to say "use ShapeLex" every time. Add the persistent instruction from [docs/AGENT_INSTRUCTIONS.md](docs/AGENT_INSTRUCTIONS.md) to your AI app or project rules when possible; then the agent should decide when ShapeLex helps, briefly tell you the first time it compresses context, and keep manual commands as a fallback.
+
 ## Install
 
 You need Node.js first. Node includes `npm` and `npx`, which are the commands used to run ShapeLex.
@@ -144,6 +146,8 @@ For detailed setup instructions, see:
 
 If setup feels confusing, copy the helper prompt from [docs/AGENT_SETUP_PROMPT.md](docs/AGENT_SETUP_PROMPT.md) into Codex, Claude Code, or Cursor and ask the agent to guide you.
 
+For best results, also add the agent rule from [docs/AGENT_INSTRUCTIONS.md](docs/AGENT_INSTRUCTIONS.md). That rule tells the AI to use ShapeLex proactively for long sessions instead of waiting for you to remember it.
+
 ## How It Works
 
 ShapeLex stores exact source text in a private local store and gives the agent compact handles.
@@ -231,6 +235,8 @@ ShapeLex está diseñado para funcionar localmente:
 - No reemplaza el texto exacto cuando los detalles importan.
 
 ShapeLex principalmente ahorra tokens de entrada. Reduce el contexto viejo que el modelo tiene que volver a leer. No acorta automáticamente la respuesta final del modelo; para ahorrar tokens de salida, pide respuestas breves y directas.
+
+Después de configurarlo, ShapeLex debe ser guiado por el agente. No deberías tener que decir "usa ShapeLex" todo el tiempo. Agrega la instrucción persistente de [docs/AGENT_INSTRUCTIONS.md](docs/AGENT_INSTRUCTIONS.md) a tu app de IA o reglas del proyecto cuando sea posible; así el agente decide cuándo ShapeLex ayuda, te avisa brevemente la primera vez que comprime contexto y mantiene los comandos manuales como alternativa.
 
 ## Instalación
 
@@ -357,6 +363,8 @@ Instrucciones completas:
 - Español: [docs/USAGE.es.md](docs/USAGE.es.md)
 
 Si la configuración se siente confusa, copia el prompt de ayuda de [docs/AGENT_SETUP_PROMPT.md](docs/AGENT_SETUP_PROMPT.md) en Codex, Claude Code o Cursor y pídele al agente que te guíe.
+
+Para mejores resultados, agrega también la regla de agente de [docs/AGENT_INSTRUCTIONS.md](docs/AGENT_INSTRUCTIONS.md). Esa regla le dice a la IA que use ShapeLex proactivamente en sesiones largas en vez de esperar a que tú lo recuerdes.
 
 ## Privacidad
 

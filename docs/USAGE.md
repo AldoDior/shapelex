@@ -1,6 +1,6 @@
 # ShapeLex Usage
 
-ShapeLex is a local MCP server that stores exact source text in a private local JSON store and returns compact `sx://` handles. Agents should search or retrieve compressed levels first, then expand exact handles when details matter.
+ShapeLex is a local MCP server that stores exact source text in a private local JSON store and returns compact `sx://` handles. It should be agent-driven after setup: the agent decides when it helps, uses compact context first, and expands exact handles when details matter.
 
 The local store is required because a handle is only a pointer. Without stored exact text, `shapelex_expand` could not recover the original words later.
 
@@ -56,6 +56,8 @@ If you see `Result: ready`, ShapeLex works.
 ## Ask An Agent To Help
 
 If MCP setup feels confusing, copy the prompt in [docs/AGENT_SETUP_PROMPT.md](AGENT_SETUP_PROMPT.md) into Codex, Claude Code, or Cursor. It tells the agent to verify Node.js, configure ShapeLex safely, avoid committing `.shapelex*` memory folders, and test the setup.
+
+After setup, add the persistent instruction in [docs/AGENT_INSTRUCTIONS.md](AGENT_INSTRUCTIONS.md) if your AI app supports project instructions, rules, or memory. That tells the agent to use ShapeLex proactively, briefly notify you the first time it compresses context, and keep manual commands as a fallback.
 
 ## Install From Source
 
@@ -162,7 +164,7 @@ For local source usage after `npm run build`, use this instead of the npm comman
 claude mcp add --transport stdio --env SHAPELEX_STORE_DIR=.shapelex-claude --env SHAPELEX_MAX_STORE_MB=100 --env SHAPELEX_TOOLSET=lean shapelex -- node ./bin/shapelex-mcp.js
 ```
 
-After setup, ask Claude Code:
+After setup, ask Claude Code once:
 
 ```text
 Use ShapeLex memory overview. What memory session am I using?
@@ -212,7 +214,7 @@ SHAPELEX_MAX_STORE_MB = "100"
 SHAPELEX_TOOLSET = "lean"
 ```
 
-Then open a new Codex task and ask:
+Then open a new Codex task and ask once:
 
 ```text
 Use ShapeLex memory overview. What memory session am I using?
@@ -224,7 +226,7 @@ For this source repo, the included config starts ShapeLex from:
 node ./bin/shapelex-mcp.js
 ```
 
-Use the bundled `skills/shapelex-memory` skill instructions alongside the MCP server so the agent knows when to compress, search, retrieve, expand, and keep chat output terse.
+Use the bundled `skills/shapelex-memory` skill instructions alongside the MCP server so the agent knows when to compress, search, retrieve, expand, and keep chat output terse. Those instructions make ShapeLex agent-driven by default.
 
 ## Cursor
 
@@ -260,7 +262,7 @@ Recommended npm setup:
 ```
 
 4. Restart Cursor or reload the window.
-5. In Cursor chat, ask:
+5. In Cursor chat, ask once:
 
 ```text
 Use ShapeLex memory overview. What memory session am I using?
@@ -287,13 +289,16 @@ If Cursor shows more ShapeLex tools than expected, set `SHAPELEX_TOOLSET` back t
 
 ## Tool Workflow
 
-1. Use `shapelex_compress_text` for long text, docs, logs, or code-like snippets.
-2. Use `shapelex_compress_messages` for older conversation history.
-3. Use `shapelex_memory_overview` to see which session is active and whether cleanup is recommended.
-4. If the result has `compressionSkipped: true`, use the returned exact text. ShapeLex decided compression would not save enough tokens.
-5. Use `shapelex_context` first to get compact task-ready context in one call.
-6. In full mode, use `shapelex_inspect` only when you need deeper search, retrieve, explain, risk, or stats actions.
-7. Use `shapelex_expand` before relying on exact wording, numbers, dates, code, commands, negations, or user intent.
+This is the agent's default workflow. The user can still ask manually, but the agent should not depend on that.
+
+1. Briefly tell the user the first time ShapeLex compresses context in a session.
+2. Use `shapelex_compress_text` for long text, docs, logs, or code-like snippets.
+3. Use `shapelex_compress_messages` for older conversation history.
+4. Use `shapelex_memory_overview` to see which session is active and whether cleanup is recommended.
+5. If the result has `compressionSkipped: true`, use the returned exact text. ShapeLex decided compression would not save enough tokens.
+6. Use `shapelex_context` first to get compact task-ready context in one call.
+7. In full mode, use `shapelex_inspect` only when you need deeper search, retrieve, explain, risk, or stats actions.
+8. Use `shapelex_expand` before relying on exact wording, numbers, dates, code, commands, negations, or user intent.
 
 ## Smoke Test
 

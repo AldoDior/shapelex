@@ -201,6 +201,17 @@ test("MCP tools/list and tools/call expose compression", async () => {
   assert.ok(call.result.structuredContent.handles.length > 0);
 });
 
+test("MCP initialize instructs agents to use ShapeLex proactively", async () => {
+  const initialized = await handleJsonRpc({ jsonrpc: "2.0", id: 40, method: "initialize", params: {} });
+  const instructions = initialized.result.instructions;
+
+  assert.match(instructions, /agent-driven/);
+  assert.match(instructions, /proactively/);
+  assert.match(instructions, /do not wait/);
+  assert.match(instructions, /Briefly tell/);
+  assert.match(instructions, /Expand sx:\/\/ handles/);
+});
+
 test("MCP default toolset is lean", async () => {
   const engine = new ShapeLexEngine();
   const handleDefaultJsonRpc = createJsonRpcHandler(engine);

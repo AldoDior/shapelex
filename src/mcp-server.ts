@@ -9,6 +9,15 @@ const engine = new ShapeLexEngine({
 });
 
 const defaultToolset = normalizeToolset(process.env.SHAPELEX_TOOLSET);
+const serverInstructions = [
+  "ShapeLex is agent-driven compressed navigable memory.",
+  "Use ShapeLex proactively for long pasted context, repeated project notes, older conversation history, large docs, logs, or code snippets; do not wait for the user to say \"use ShapeLex\".",
+  "Briefly tell the user the first time you compress context in a session, and when switching or cleaning memory.",
+  "Use shapelex_context before loading old memory into the prompt.",
+  "Expand sx:// handles before relying on exact wording, numbers, dates, negations, user instructions, code, errors, commands, or decisions.",
+  "If risk.shouldExpand or risk.mustExpand is true for a needed detail, expand before acting.",
+  "Keep chat output terse so saved input tokens are not wasted on unnecessary explanation."
+].join(" ");
 const leanToolNames = new Set([
   "shapelex_compress_text",
   "shapelex_compress_messages",
@@ -22,7 +31,7 @@ const leanToolNames = new Set([
 const tools = [
   {
     name: "shapelex_compress_messages",
-    description: "Compress older chat messages into sx:// handles.",
+    description: "Agent-driven: compress older chat messages into sx:// handles when conversation history gets long or repeated.",
     inputSchema: {
       type: "object",
       properties: {
@@ -47,7 +56,7 @@ const tools = [
   },
   {
     name: "shapelex_compress_text",
-    description: "Compress text/code/docs into sx:// handles.",
+    description: "Agent-driven: compress long text, code, docs, logs, or project notes into sx:// handles.",
     inputSchema: {
       type: "object",
       properties: {
@@ -63,7 +72,7 @@ const tools = [
   },
   {
     name: "shapelex_expand",
-    description: "Expand sx:// handle to exact text.",
+    description: "Expand an sx:// handle to exact text before relying on details that require precision.",
     inputSchema: {
       type: "object",
       properties: {
@@ -76,7 +85,7 @@ const tools = [
   },
   {
     name: "shapelex_context",
-    description: "Return compact task-ready memory.",
+    description: "Agent-driven: return compact task-ready memory before reloading old context into the prompt.",
     inputSchema: {
       type: "object",
       properties: {
@@ -111,7 +120,7 @@ const tools = [
   },
   {
     name: "shapelex_memory_overview",
-    description: "Show active sessions and cleanup suggestions.",
+    description: "Show active sessions and cleanup suggestions when starting, switching, or cleaning project memory.",
     inputSchema: {
       type: "object",
       properties: {
@@ -211,7 +220,7 @@ async function dispatch(targetEngine: ShapeLexEngine, activeTools: any[], method
           name: "shapelex-mcp",
           version: "0.4.0"
         },
-        instructions: "ShapeLex exposes compressed navigable memory. Use risk assessment before relying on compressed levels and expand sx:// handles for exact wording."
+        instructions: serverInstructions
       };
     case "ping":
       return {};

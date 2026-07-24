@@ -31,3 +31,26 @@ test("package metadata is ready for public npm and GitHub", () => {
   assert.ok(packageJson.files.includes("CHANGELOG.md"));
   assert.ok(packageJson.files.includes("CONTRIBUTING.md"));
 });
+
+test("agent instructions make ShapeLex agent-driven while keeping manual fallback", () => {
+  const docs = [
+    "docs/AGENT_INSTRUCTIONS.md",
+    "docs/AGENT_SETUP_PROMPT.md",
+    "docs/cursor-rule.md",
+    "skills/shapelex-memory/SKILL.md",
+    "README.md",
+    "docs/USAGE.md",
+    "docs/USAGE.es.md"
+  ];
+
+  for (const docPath of docs) {
+    const text = fs.readFileSync(docPath, "utf8");
+    assert.match(text, /agent-driven|guiado por el agente|proactivamente|proactively/i, docPath);
+  }
+
+  const agentInstructions = fs.readFileSync("docs/AGENT_INSTRUCTIONS.md", "utf8");
+  assert.match(agentInstructions, /do not wait/i);
+  assert.match(agentInstructions, /Manual commands/i);
+  assert.match(agentInstructions, /No esperes/i);
+  assert.match(agentInstructions, /comandos manuales/i);
+});

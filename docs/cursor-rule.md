@@ -1,7 +1,8 @@
 # ShapeLex Cursor Rule
 
-Use ShapeLex for long-session memory.
+Use ShapeLex proactively for long-session memory. ShapeLex is agent-driven by default: decide when it helps and do not wait for the user to say "use ShapeLex".
 
+- Briefly tell the user the first time you use ShapeLex in a session, for example: "I am going to compress older context with ShapeLex to keep this session lighter." Do not repeat this for every tool call.
 - Use `shapelex_memory_overview` when starting work, switching projects, or cleaning memory.
 - Use a readable `sessionId` per project, such as `inventory-app` or `client-portal`.
 - Compress only long or repeated context.

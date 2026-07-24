@@ -2,7 +2,7 @@
 
 Esta guía está escrita para personas que no necesariamente tienen experiencia técnica. Si ya sabes usar Node, npm y MCP, puedes ir directo a la sección de tu app: Codex, Claude Code o Cursor.
 
-ShapeLex es un servidor MCP local. En palabras simples: ayuda a que una herramienta de IA recuerde contexto viejo sin tener que pegar todo ese texto otra vez en cada mensaje.
+ShapeLex es un servidor MCP local. En palabras simples: ayuda a que una herramienta de IA recuerde contexto viejo sin tener que pegar todo ese texto otra vez en cada mensaje. Después de configurarlo, debe ser guiado por el agente: la IA decide cuándo usarlo, usa contexto compacto primero y expande texto exacto cuando los detalles importan.
 
 ## Qué Necesitas
 
@@ -56,6 +56,8 @@ Si ves `Result: ready`, ShapeLex funciona.
 ## Pedir Ayuda A Un Agente
 
 Si configurar MCP se siente confuso, copia el prompt de [docs/AGENT_SETUP_PROMPT.md](AGENT_SETUP_PROMPT.md) en Codex, Claude Code o Cursor. Ese prompt le pide al agente verificar Node.js, configurar ShapeLex de forma segura, evitar subir carpetas `.shapelex*` y probar la configuración.
+
+Después de configurarlo, agrega la instrucción persistente de [docs/AGENT_INSTRUCTIONS.md](AGENT_INSTRUCTIONS.md) si tu app de IA soporta instrucciones de proyecto, reglas o memoria. Esa instrucción le dice al agente que use ShapeLex proactivamente, te avise brevemente la primera vez que comprima contexto y mantenga comandos manuales como alternativa.
 
 ## Paso 3: Configurar Tu App De IA
 
@@ -114,7 +116,7 @@ SHAPELEX_MAX_STORE_MB = "100"
 SHAPELEX_TOOLSET = "lean"
 ```
 
-Para probarlo, abre una tarea nueva en Codex y pregunta:
+Para probarlo, abre una tarea nueva en Codex y pregunta una vez:
 
 ```text
 Use ShapeLex memory overview. What memory session am I using?
@@ -152,7 +154,7 @@ Dentro de Claude Code también puedes abrir:
 
 Eso ayuda a confirmar que ShapeLex está conectado.
 
-Después pregunta en Claude Code:
+Después pregunta una vez en Claude Code:
 
 ```text
 Use ShapeLex memory overview. What memory session am I using?
@@ -187,7 +189,7 @@ Contenido recomendado:
 
 Luego reinicia Cursor o recarga la ventana.
 
-En el chat de Cursor, pregunta:
+En el chat de Cursor, pregunta una vez:
 
 ```text
 Use ShapeLex memory overview. What memory session am I using?
@@ -195,17 +197,19 @@ Use ShapeLex memory overview. What memory session am I using?
 
 ## Cómo Usarlo En Una Sesión Larga
 
-Pide al agente que use ShapeLex cuando el contexto empiece a crecer:
+Este debe ser el flujo normal del agente. No deberías tener que pedirlo todo el tiempo.
 
 ```text
-Use ShapeLex to compress the older context and keep only what you need for the next task.
+Use ShapeLex memory overview. What memory session am I using?
 ```
 
-Cuando un detalle sea importante, pide que expanda el texto exacto:
+Después de esa prueba inicial, el agente debe decidir cuándo comprimir contexto viejo. La primera vez que lo haga, debería avisarte brevemente:
 
 ```text
-Before changing code, expand the relevant ShapeLex handles and verify exact requirements.
+Voy a comprimir contexto anterior con ShapeLex para mantener esta sesión más ligera.
 ```
+
+Cuando un detalle sea importante, el agente debe expandir el texto exacto antes de cambiar código, ejecutar comandos, borrar memoria o depender de números, fechas, negaciones, errores o instrucciones.
 
 ## Sesiones
 
