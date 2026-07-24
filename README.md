@@ -166,7 +166,7 @@ ShapeLex gives agents a hierarchy:
 
 ## Privacy
 
-Local ShapeLex memory may contain exact private text. Do not commit or publish these folders:
+Local ShapeLex memory may contain exact private text. ShapeLex auto-adds `.shapelex*` local store folders to `.gitignore` when it starts inside a git repo. Keep this warning anyway: do not commit or publish these folders.
 
 ```text
 .shapelex/
@@ -175,7 +175,7 @@ Local ShapeLex memory may contain exact private text. Do not commit or publish t
 .shapelex-claude/
 ```
 
-This repo ignores those folders with `.gitignore`.
+This repo ignores those folders with `.gitignore`, and ShapeLex adds matching local store folders automatically for new projects.
 
 ## For Developers
 
@@ -360,7 +360,7 @@ Si la configuración se siente confusa, copia el prompt de ayuda de [docs/AGENT_
 
 ## Privacidad
 
-La memoria local de ShapeLex puede contener texto privado exacto. No subas estas carpetas a GitHub:
+La memoria local de ShapeLex puede contener texto privado exacto. ShapeLex agrega automáticamente carpetas locales `.shapelex*` al `.gitignore` cuando inicia dentro de un repo git. Aun así, no subas estas carpetas a GitHub:
 
 ```text
 .shapelex/
@@ -369,4 +369,4 @@ La memoria local de ShapeLex puede contener texto privado exacto. No subas estas
 .shapelex-claude/
 ```
 
-Este repositorio ya ignora esas carpetas con `.gitignore`.
+Este repositorio ya ignora esas carpetas con `.gitignore`, y ShapeLex agrega carpetas locales equivalentes automáticamente en proyectos nuevos.

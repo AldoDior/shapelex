@@ -111,7 +111,7 @@ function checkGitignore(cwd: string): Check {
     name: "private-store-ignore",
     ok: missing.length === 0,
     message: missing.length === 0
-      ? "Local ShapeLex stores are ignored by git."
+      ? "Local ShapeLex stores are ignored by git. ShapeLex also auto-adds .shapelex* store folders when it starts in a git repo."
       : `Missing gitignore entries: ${missing.join(", ")}`
   };
 }

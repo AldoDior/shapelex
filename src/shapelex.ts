@@ -45,6 +45,7 @@ export class ShapeLexEngine {
   maxStoreBytes: number;
   storageDir?: string;
   storePath?: string;
+  gitignoreProtection?: any;
 
   constructor({
     storageDir,
@@ -56,6 +57,7 @@ export class ShapeLexEngine {
     this.maxStoreBytes = normalizeMaxStoreBytes(maxStoreBytes);
     this.storageDir = storageDir ? path.resolve(storageDir) : undefined;
     this.storePath = this.storageDir ? path.join(this.storageDir, DEFAULT_STORE_FILE) : undefined;
+    this.gitignoreProtection = protectLocalStoreWithGitignore(this.storageDir);
     this.#loadStore();
   }
 
@@ -476,7 +478,8 @@ export class ShapeLexEngine {
         enabled: this.persistent,
         storePath: this.storePath,
         maxStoreBytes: this.maxStoreBytes,
-        strategy: "single-json-file"
+        strategy: "single-json-file",
+        gitignoreProtection: this.gitignoreProtection
       }
     };
   }
@@ -1644,6 +1647,66 @@ function normalizeMaxStoreBytes(value) {
     throw new TypeError("maxStoreBytes must be at least 1 MiB");
   }
   return Math.floor(bytes);
+}
+
+function protectLocalStoreWithGitignore(storageDir: string | undefined) {
+  if (!storageDir) {
+    return { enabled: false, reason: "no-storage-dir" };
+  }
+
+  const storeName = path.basename(storageDir);
+  if (!storeName.startsWith(".shapelex")) {
+    return { enabled: false, reason: "non-shapelex-store-dir", storeDir: storageDir };
+  }
+
+  const gitRoot = findGitRoot(path.dirname(storageDir));
+  if (!gitRoot) {
+    return { enabled: false, reason: "not-in-git-repo", storeDir: storageDir };
+  }
+
+  const relativeStore = path.relative(gitRoot, storageDir).replace(/\\/g, "/");
+  if (!relativeStore || relativeStore.startsWith("../") || path.isAbsolute(relativeStore)) {
+    return { enabled: false, reason: "store-outside-git-repo", storeDir: storageDir, gitRoot };
+  }
+
+  const entry = `${relativeStore.replace(/\/+$/, "")}/`;
+  const gitignorePath = path.join(gitRoot, ".gitignore");
+
+  try {
+    const existing = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, "utf8") : "";
+    const lines = existing.split(/\r?\n/).map((line) => line.trim());
+    if (lines.includes(entry)) {
+      return { enabled: true, changed: false, entry, gitignorePath };
+    }
+
+    const eol = existing.includes("\r\n") ? "\r\n" : "\n";
+    const prefix = existing.length > 0 && !existing.endsWith("\n") ? eol : "";
+    const heading = lines.includes("# ShapeLex local memory") ? "" : `# ShapeLex local memory${eol}`;
+    fs.writeFileSync(gitignorePath, `${existing}${prefix}${heading}${entry}${eol}`);
+    return { enabled: true, changed: true, entry, gitignorePath };
+  } catch (error) {
+    return {
+      enabled: false,
+      reason: "gitignore-write-failed",
+      entry,
+      gitignorePath,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+function findGitRoot(startDir: string) {
+  let current = path.resolve(startDir);
+  while (true) {
+    if (fs.existsSync(path.join(current, ".git"))) {
+      return current;
+    }
+    const parent = path.dirname(current);
+    if (parent === current) {
+      return undefined;
+    }
+    current = parent;
+  }
 }
 
 function assertUriSession(uriSessionId, requestedSessionId, uri) {

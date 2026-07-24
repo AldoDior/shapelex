@@ -243,7 +243,7 @@ Para mantener solo las sesiones más recientes, usa `shapelex_prune`.
 
 ## Privacidad
 
-ShapeLex guarda texto exacto localmente. Eso puede incluir código privado, instrucciones, notas, logs o texto pegado en una conversación.
+ShapeLex guarda texto exacto localmente. Eso puede incluir código privado, instrucciones, notas, logs o texto pegado en una conversación. Cuando ShapeLex inicia dentro de un repo git, agrega automáticamente carpetas locales `.shapelex*` al `.gitignore`.
 
 No subas estas carpetas a GitHub:
 

@@ -93,6 +93,36 @@ test("stats report persistence strategy and configurable store limit", () => {
   assert.equal(stats.persistence.strategy, "single-json-file");
 });
 
+test("persistent storage protects ShapeLex stores in gitignore", () => {
+  const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), "shapelex-gitignore-"));
+  fs.mkdirSync(path.join(repoDir, ".git"));
+  fs.writeFileSync(path.join(repoDir, ".gitignore"), "node_modules/\n");
+
+  const engine = new ShapeLexEngine({ storageDir: path.join(repoDir, ".shapelex-cursor") });
+  const gitignore = fs.readFileSync(path.join(repoDir, ".gitignore"), "utf8");
+  const stats = engine.stats();
+
+  assert.match(gitignore, /# ShapeLex local memory/);
+  assert.match(gitignore, /^\.shapelex-cursor\/$/m);
+  assert.equal(stats.persistence.gitignoreProtection.enabled, true);
+  assert.equal(stats.persistence.gitignoreProtection.changed, true);
+
+  new ShapeLexEngine({ storageDir: path.join(repoDir, ".shapelex-cursor") });
+  const secondGitignore = fs.readFileSync(path.join(repoDir, ".gitignore"), "utf8");
+  assert.equal(secondGitignore.match(/^\.shapelex-cursor\/$/gm)?.length, 1);
+});
+
+test("persistent storage does not auto-ignore non ShapeLex folder names", () => {
+  const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), "shapelex-gitignore-safe-"));
+  fs.mkdirSync(path.join(repoDir, ".git"));
+
+  const engine = new ShapeLexEngine({ storageDir: path.join(repoDir, "src") });
+
+  assert.equal(fs.existsSync(path.join(repoDir, ".gitignore")), false);
+  assert.equal(engine.stats().persistence.gitignoreProtection.enabled, false);
+  assert.equal(engine.stats().persistence.gitignoreProtection.reason, "non-shapelex-store-dir");
+});
+
 test("persistent clear removes sessions from the store", () => {
   const storageDir = fs.mkdtempSync(path.join(os.tmpdir(), "shapelex-clear-"));
   const first = new ShapeLexEngine({ storageDir });

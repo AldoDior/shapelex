@@ -372,7 +372,7 @@ To save output tokens, use the bundled skill instruction: keep responses terse, 
 
 ## Privacy
 
-ShapeLex stores exact source text locally. This is not cloud storage and ShapeLex does not send it to an external service. Do not publish or share `.shapelex/`. If you compressed private conversation history, source code, documents, logs, or credentials by mistake, delete the relevant session with `shapelex_clear` or remove the local store.
+ShapeLex stores exact source text locally. This is not cloud storage and ShapeLex does not send it to an external service. When ShapeLex starts inside a git repo, it auto-adds `.shapelex*` local store folders to `.gitignore`. Do not publish or share `.shapelex/`. If you compressed private conversation history, source code, documents, logs, or credentials by mistake, delete the relevant session with `shapelex_clear` or remove the local store.
 
 ## Scaling Notes
 

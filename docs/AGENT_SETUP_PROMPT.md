@@ -19,6 +19,7 @@ Goal:
   - Claude Code: `.shapelex-claude`
   - Cursor: `.shapelex-cursor`
 - Do not publish, commit, or upload `.shapelex*` folders.
+- ShapeLex should auto-add `.shapelex*` stores to `.gitignore`, but verify that the entry exists.
 - After setup, test it by asking ShapeLex memory overview what session is active.
 
 Use the correct setup path for my app:
@@ -49,6 +50,7 @@ Objetivo:
   - Claude Code: `.shapelex-claude`
   - Cursor: `.shapelex-cursor`
 - No publicar, commitear ni subir carpetas `.shapelex*`.
+- ShapeLex debería agregar automáticamente carpetas `.shapelex*` al `.gitignore`, pero verifica que la entrada exista.
 - Después de configurarlo, probarlo preguntando a ShapeLex memory overview qué sesión está activa.
 
 Usa la ruta correcta para mi app:
