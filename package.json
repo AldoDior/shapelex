@@ -32,7 +32,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "npm run build && node ./bin/shapelex-mcp.js",
     "doctor": "npm run build && node ./bin/shapelex-mcp.js --doctor",
-    "test": "npm run build && node --test \"dist/test/*.test.js\"",
+    "test": "npm run build && node ./dist/src/run-tests.js",
     "benchmark": "npm run build && node ./dist/src/shapelex-benchmark.js",
     "smoke": "npm run build && node ./dist/src/shapelex-smoke-eval.js",
     "e2e": "npm run build && node ./dist/src/shapelex-e2e-eval.js",
