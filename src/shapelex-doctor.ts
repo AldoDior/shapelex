@@ -50,7 +50,7 @@ export async function runDoctor({ cwd = process.cwd() } = {}) {
     nextSteps: ok
       ? [
         "Start the MCP server with node ./bin/shapelex-mcp.js, or use the included Codex/Cursor/Claude project configs.",
-        "Keep SHAPELEX_TOOLSET=lean for Codex, Cursor, and Claude Code unless you are debugging ShapeLex itself."
+        "ShapeLex defaults to the lean toolset. Set SHAPELEX_TOOLSET=full only when debugging ShapeLex itself."
       ]
       : [
         "Run npm install, then npm run build, then npm run doctor.",
@@ -144,13 +144,13 @@ function checkMcpConfigs(cwd: string): Check[] {
 }
 
 async function checkLeanToolset(): Promise<Check> {
-  const handle = createJsonRpcHandler(new ShapeLexEngine({ persistent: false }), { toolset: "lean" });
+  const handle = createJsonRpcHandler(new ShapeLexEngine({ persistent: false }));
   const response = await handle({ jsonrpc: "2.0", id: "doctor-tools", method: "tools/list" });
   const names = response.result.tools.map((tool) => tool.name);
   const ok = JSON.stringify(names) === JSON.stringify(EXPECTED_LEAN_TOOLS);
 
   return {
-    name: "lean-toolset",
+    name: "default-lean-toolset",
     ok,
     message: ok
       ? `Lean mode exposes ${names.length} core tools.`

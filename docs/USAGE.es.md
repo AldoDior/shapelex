@@ -1,10 +1,10 @@
-# Guia De Uso De ShapeLex
+# Guía De Uso De ShapeLex
 
-Esta guia esta escrita para personas que no necesariamente tienen experiencia tecnica. Si ya sabes usar Node, npm y MCP, puedes ir directo a la seccion de tu app: Codex, Claude Code o Cursor.
+Esta guía está escrita para personas que no necesariamente tienen experiencia técnica. Si ya sabes usar Node, npm y MCP, puedes ir directo a la sección de tu app: Codex, Claude Code o Cursor.
 
 ShapeLex es un servidor MCP local. En palabras simples: ayuda a que una herramienta de IA recuerde contexto viejo sin tener que pegar todo ese texto otra vez en cada mensaje.
 
-## Que Necesitas
+## Qué Necesitas
 
 Necesitas tres cosas:
 
@@ -17,7 +17,7 @@ No necesitas crear una cuenta de npm para usar ShapeLex. La cuenta de npm solo h
 ## Paso 1: Instalar Node.js
 
 1. Abre [nodejs.org](https://nodejs.org/).
-2. Descarga la version LTS.
+2. Descarga la versión LTS.
 3. Instala Node.js con las opciones normales del instalador.
 4. Cierra y vuelve a abrir tu terminal.
 
@@ -34,7 +34,7 @@ node --version
 npm --version
 ```
 
-Si ambos comandos muestran una version, vas bien.
+Si ambos comandos muestran una versión, vas bien.
 
 ## Paso 2: Probar ShapeLex
 
@@ -44,12 +44,12 @@ Ejecuta:
 npx -y shapelex-mcp --doctor
 ```
 
-Que significa este comando:
+Qué significa este comando:
 
 - `npx` ejecuta un paquete de npm sin instalarlo globalmente.
-- `-y` acepta la descarga automaticamente.
+- `-y` acepta la descarga automáticamente.
 - `shapelex-mcp` es el nombre del paquete.
-- `--doctor` revisa si tu maquina esta lista.
+- `--doctor` revisa si tu máquina está lista.
 
 Si ves `Result: ready`, ShapeLex funciona.
 
@@ -61,20 +61,21 @@ Normalmente no vas a abrir ShapeLex a mano. Tu app de IA lo inicia por ti usando
 npx -y shapelex-mcp
 ```
 
-La configuracion recomendada usa:
+La configuración recomendada usa:
 
 ```text
-SHAPELEX_TOOLSET=lean
 SHAPELEX_STORE_DIR=.shapelex
 ```
 
-`SHAPELEX_TOOLSET=lean` mantiene pocas herramientas visibles para la IA. Esto ayuda a reducir tokens.
+ShapeLex usa el modo lean por defecto. Eso mantiene pocas herramientas visibles para la IA y ayuda a reducir tokens.
+
+Usa `SHAPELEX_TOOLSET=full` solo si quieres herramientas de depuración más detalladas.
 
 `SHAPELEX_STORE_DIR=.shapelex` indica donde se guarda la memoria local.
 
 ## Codex
 
-Si estas usando este repositorio directamente, ya existe una configuracion en:
+Si estás usando este repositorio directamente, ya existe una configuración en:
 
 ```text
 .codex/config.toml
@@ -86,10 +87,9 @@ En un proyecto nuevo, configura Codex para iniciar ShapeLex con:
 npx -y shapelex-mcp
 ```
 
-Usa estas variables:
+Usa esta variable:
 
 ```text
-SHAPELEX_TOOLSET=lean
 SHAPELEX_STORE_DIR=.shapelex-codex
 ```
 
@@ -99,7 +99,7 @@ Para probarlo, abre una tarea nueva en Codex y pregunta:
 Use ShapeLex memory overview. What memory session am I using?
 ```
 
-La respuesta deberia decir que sesion esta usando y si hay memoria que limpiar.
+La respuesta debería decir qué sesión está usando y si hay memoria que limpiar.
 
 ## Claude Code
 
@@ -115,19 +115,19 @@ En Windows, si Claude Code no puede abrir `npx` directamente, usa:
 claude mcp add --transport stdio --env SHAPELEX_STORE_DIR=.shapelex-claude --env SHAPELEX_MAX_STORE_MB=100 --env SHAPELEX_TOOLSET=lean shapelex -- cmd /c npx -y shapelex-mcp
 ```
 
-Despues revisa:
+Después revisa:
 
 ```bash
 claude mcp list
 ```
 
-Dentro de Claude Code tambien puedes abrir:
+Dentro de Claude Code también puedes abrir:
 
 ```text
 /mcp
 ```
 
-Eso ayuda a confirmar que ShapeLex esta conectado.
+Eso ayuda a confirmar que ShapeLex está conectado.
 
 ## Cursor
 
@@ -162,7 +162,7 @@ En el chat de Cursor pregunta:
 Use ShapeLex memory overview. What memory session am I using?
 ```
 
-## Como Usarlo En Una Sesion Larga
+## Cómo Usarlo En Una Sesión Larga
 
 Pide al agente que use ShapeLex cuando el contexto empiece a crecer:
 
@@ -178,7 +178,7 @@ Before changing code, expand the relevant ShapeLex handles and verify exact requ
 
 ## Sesiones
 
-Una sesion es como una caja de memoria. Usa una sesion por proyecto o tarea.
+Una sesión es como una caja de memoria. Usa una sesión por proyecto o tarea.
 
 Buenos nombres:
 
@@ -198,7 +198,7 @@ Usar `default` para todo mezcla memoria de proyectos diferentes.
 
 ## Limpieza De Memoria
 
-ShapeLex no borra memoria vieja automaticamente. Esto es intencional, porque borrar una sesion puede romper enlaces `sx://` que el agente todavia necesita expandir.
+ShapeLex no borra memoria vieja automáticamente. Esto es intencional, porque borrar una sesión puede romper enlaces `sx://` que el agente todavía necesita expandir.
 
 Para revisar memoria, pide:
 
@@ -206,13 +206,13 @@ Para revisar memoria, pide:
 Use ShapeLex memory overview. What memory session am I using, and should I clean anything?
 ```
 
-Para borrar una sesion vieja, usa la herramienta `shapelex_clear` con el `sessionId` correcto.
+Para borrar una sesión vieja, usa la herramienta `shapelex_clear` con el `sessionId` correcto.
 
-Para mantener solo las sesiones mas recientes, usa `shapelex_prune`.
+Para mantener solo las sesiones más recientes, usa `shapelex_prune`.
 
 ## Privacidad
 
-ShapeLex guarda texto exacto localmente. Eso puede incluir codigo privado, instrucciones, notas, logs o texto pegado en una conversacion.
+ShapeLex guarda texto exacto localmente. Eso puede incluir código privado, instrucciones, notas, logs o texto pegado en una conversación.
 
 No subas estas carpetas a GitHub:
 
@@ -223,9 +223,9 @@ No subas estas carpetas a GitHub:
 .shapelex-claude/
 ```
 
-Si guardaste algo privado por error, borra la sesion con `shapelex_clear` o elimina la carpeta local de ShapeLex.
+Si guardaste algo privado por error, borra la sesión con `shapelex_clear` o elimina la carpeta local de ShapeLex.
 
-## Probar Desde El Codigo Fuente
+## Probar Desde El Código Fuente
 
 Esto solo es necesario si quieres contribuir al proyecto o modificar ShapeLex.
 
@@ -243,5 +243,5 @@ npm run check
 1. Instala Node.js.
 2. Prueba `npx -y shapelex-mcp --doctor`.
 3. Configura tu app de IA para ejecutar `npx -y shapelex-mcp`.
-4. Usa `SHAPELEX_TOOLSET=lean`.
+4. Usa el modo lean por defecto. Solo cambia a `SHAPELEX_TOOLSET=full` para depuración.
 5. No subas carpetas `.shapelex*` a GitHub.

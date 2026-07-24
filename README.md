@@ -1,6 +1,6 @@
 # ShapeLex
 
-[English](#english) | [Espanol](#espanol)
+[English](#english) | [Español](#español)
 
 ## English
 
@@ -74,14 +74,13 @@ Recommended MCP command for most tools:
 npx -y shapelex-mcp
 ```
 
-Recommended environment variables:
+Optional environment variables:
 
 ```text
-SHAPELEX_TOOLSET=lean
 SHAPELEX_STORE_DIR=.shapelex
 ```
 
-Use `SHAPELEX_TOOLSET=lean` for Codex, Claude Code, and Cursor. Lean mode exposes the normal low-overhead tools and avoids loading debug tools into the model context.
+ShapeLex defaults to the lean toolset because that is the normal token-saving mode. Use `SHAPELEX_TOOLSET=full` only when you want lower-level debug tools.
 
 ## How It Works
 
@@ -155,13 +154,13 @@ Full mode also exposes lower-level search, retrieve, explain, risk, and stats to
 
 See [SECURITY.md](SECURITY.md). ShapeLex uses a package `files` allowlist so npm publishing does not include local stores, caches, dependencies, private research notes, or generated local files.
 
-## Espanol
+## Español
 
-ShapeLex es un servidor MCP local de memoria para herramientas de IA. Ayuda a que las sesiones largas usen menos tokens de entrada guardando contexto viejo en tu computadora y dandole a la IA enlaces compactos `sx://` que puede expandir cuando necesita el texto exacto.
+ShapeLex es un servidor MCP local de memoria para herramientas de IA. Ayuda a que las sesiones largas usen menos tokens de entrada guardando contexto viejo en tu computadora y dándole a la IA enlaces compactos `sx://` que puede expandir cuando necesita el texto exacto.
 
 Puedes usar ShapeLex con herramientas que soportan MCP, como Codex, Claude Code y Cursor.
 
-ShapeLex esta disenado para funcionar localmente:
+ShapeLex está diseñado para funcionar localmente:
 
 - Guarda memoria exacta en tu computadora.
 - No llama a otro modelo de IA.
@@ -169,14 +168,14 @@ ShapeLex esta disenado para funcionar localmente:
 - No tiene dependencias npm en runtime.
 - No reemplaza el texto exacto cuando los detalles importan.
 
-ShapeLex principalmente ahorra tokens de entrada. Reduce el contexto viejo que el modelo tiene que volver a leer. No acorta automaticamente la respuesta final del modelo; para ahorrar tokens de salida, pide respuestas breves y directas.
+ShapeLex principalmente ahorra tokens de entrada. Reduce el contexto viejo que el modelo tiene que volver a leer. No acorta automáticamente la respuesta final del modelo; para ahorrar tokens de salida, pide respuestas breves y directas.
 
-## Instalacion
+## Instalación
 
 Primero necesitas Node.js. Node incluye `npm` y `npx`, que son los comandos usados para ejecutar ShapeLex.
 
 1. Instala Node.js desde [nodejs.org](https://nodejs.org/).
-2. Elige la version LTS, a menos que sepas que necesitas otra version.
+2. Elige la versión LTS, a menos que sepas que necesitas otra versión.
 3. Abre una terminal.
    - Windows: PowerShell o Windows Terminal.
    - macOS: Terminal.
@@ -194,11 +193,11 @@ npm --version
 npx -y shapelex-mcp --doctor
 ```
 
-Si el doctor muestra `Result: ready`, ShapeLex esta listo.
+Si el doctor muestra `Result: ready`, ShapeLex está listo.
 
 Normalmente no necesitas instalar ShapeLex de forma global. `npx -y shapelex-mcp` descarga y ejecuta el paquete publicado en npm cuando tu herramienta de IA inicia el servidor MCP.
 
-## Inicio Rapido
+## Inicio Rápido
 
 Prueba manual:
 
@@ -212,29 +211,28 @@ Iniciar el servidor MCP manualmente:
 npx -y shapelex-mcp
 ```
 
-La mayoria de usuarios no necesita iniciarlo manualmente. Codex, Claude Code o Cursor lo inician desde su configuracion MCP.
+La mayoría de usuarios no necesita iniciarlo manualmente. Codex, Claude Code o Cursor lo inician desde su configuración MCP.
 
-## Configuracion De Apps De IA
+## Configuración De Apps De IA
 
 Instrucciones completas:
 
-- Ingles: [docs/USAGE.md](docs/USAGE.md)
-- Espanol: [docs/USAGE.es.md](docs/USAGE.es.md)
+- Inglés: [docs/USAGE.md](docs/USAGE.md)
+- Español: [docs/USAGE.es.md](docs/USAGE.es.md)
 
-Comando MCP recomendado para la mayoria de herramientas:
+Comando MCP recomendado para la mayoría de herramientas:
 
 ```bash
 npx -y shapelex-mcp
 ```
 
-Variables recomendadas:
+Variable opcional recomendada:
 
 ```text
-SHAPELEX_TOOLSET=lean
 SHAPELEX_STORE_DIR=.shapelex
 ```
 
-Usa `SHAPELEX_TOOLSET=lean` para Codex, Claude Code y Cursor. Lean mode expone las herramientas normales y evita cargar herramientas de debug en el contexto del modelo.
+ShapeLex usa el modo lean por defecto porque es el modo normal para ahorrar tokens. Usa `SHAPELEX_TOOLSET=full` solo cuando quieras herramientas de depuración más detalladas.
 
 ## Privacidad
 

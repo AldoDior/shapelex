@@ -9,7 +9,7 @@ test("doctor validates cross-platform setup requirements", async () => {
   assert.equal(report.ok, true);
   assert.match(rendered, /ShapeLex doctor/);
   assert.ok(report.checks.some((check) => check.name === "node-version" && check.ok));
-  assert.ok(report.checks.some((check) => check.name === "lean-toolset" && check.ok));
+  assert.ok(report.checks.some((check) => check.name === "default-lean-toolset" && check.ok));
   assert.ok(report.checks.some((check) => check.name === ".cursor/mcp.json" && check.ok));
   assert.ok(report.checks.some((check) => check.name === ".mcp.json" && check.ok));
 });

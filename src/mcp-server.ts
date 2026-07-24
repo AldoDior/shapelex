@@ -259,7 +259,7 @@ export function startMcpServer({ input = process.stdin, output = process.stdout 
 
 export const handleJsonRpc = createJsonRpcHandler(engine);
 
-export function createJsonRpcHandler(targetEngine: ShapeLexEngine, { toolset = "full" }: any = {}) {
+export function createJsonRpcHandler(targetEngine: ShapeLexEngine, { toolset = "lean" }: any = {}) {
   const activeTools = toolsForToolset(normalizeToolset(toolset));
 
   return async function handle(request: any): Promise<any> {
@@ -410,7 +410,7 @@ function maxStoreBytesFromEnv(value: string | undefined) {
 }
 
 function normalizeToolset(value: any) {
-  const toolset = String(value ?? "full").trim().toLowerCase();
+  const toolset = String(value ?? "lean").trim().toLowerCase();
   if (!["full", "lean"].includes(toolset)) {
     throw new TypeError("SHAPELEX_TOOLSET must be either full or lean");
   }

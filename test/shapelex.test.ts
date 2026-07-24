@@ -152,6 +152,7 @@ test("memoryOverview explains current session and cleanup suggestions", () => {
 test("MCP tools/list and tools/call expose compression", async () => {
   const list = await handleJsonRpc({ jsonrpc: "2.0", id: 1, method: "tools/list" });
   assert.equal(list.result.tools.some((tool) => tool.name === "shapelex_compress_text"), true);
+  assert.equal(list.result.tools.some((tool) => tool.name === "shapelex_search"), false);
 
   const call = await handleJsonRpc({
     jsonrpc: "2.0",
@@ -168,6 +169,23 @@ test("MCP tools/list and tools/call expose compression", async () => {
 
   assert.equal(call.result.structuredContent.sessionId, "mcp");
   assert.ok(call.result.structuredContent.handles.length > 0);
+});
+
+test("MCP default toolset is lean", async () => {
+  const engine = new ShapeLexEngine();
+  const handleDefaultJsonRpc = createJsonRpcHandler(engine);
+  const list = await handleDefaultJsonRpc({ jsonrpc: "2.0", id: 30, method: "tools/list" });
+  const names = list.result.tools.map((tool) => tool.name);
+
+  assert.deepEqual(names, [
+    "shapelex_compress_messages",
+    "shapelex_compress_text",
+    "shapelex_expand",
+    "shapelex_context",
+    "shapelex_memory_overview",
+    "shapelex_clear",
+    "shapelex_prune"
+  ]);
 });
 
 test("MCP lean toolset exposes only the core low-overhead tools", async () => {
@@ -337,10 +355,9 @@ test("MCP resources expose ShapeLex documents and levels", async () => {
     id: 10,
     method: "tools/call",
     params: {
-      name: "shapelex_compress",
+      name: "shapelex_compress_text",
       arguments: {
         sessionId: "resources",
-        mode: "text",
         label: "resource-demo",
         text: "Never approve payment batch 42 without dual approval."
       }

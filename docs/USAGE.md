@@ -102,14 +102,14 @@ $env:SHAPELEX_MAX_STORE_MB="250"
 npm start
 ```
 
-For Codex, Claude Code, and Cursor, use the lean MCP tool set to reduce tool-schema overhead:
+ShapeLex uses the lean MCP toolset by default to reduce tool-schema overhead in Codex, Claude Code, and Cursor. You can still set it explicitly:
 
 ```powershell
 $env:SHAPELEX_TOOLSET="lean"
 npm start
 ```
 
-Lean mode exposes the normal low-overhead workflow: compress, get compact context, expand exact handles, inspect memory, and clean sessions. Use `SHAPELEX_TOOLSET="full"` when you want lower-level search, retrieve, risk, and debug tools.
+Lean mode exposes the normal low-overhead workflow: compress, get compact context, expand exact handles, inspect memory, and clean sessions. Use `SHAPELEX_TOOLSET="full"` only when you want lower-level search, retrieve, risk, and debug tools.
 
 The live Codex benchmark showed why this matters: exposing every MCP tool can cost more tokens than raw context. Lean mode fixed that by reducing the tool list loaded into the model.
 
@@ -164,10 +164,9 @@ For npm usage in another project, configure Codex to start ShapeLex with:
 npx -y shapelex-mcp
 ```
 
-Use these environment variables:
+Use this environment variable:
 
 ```text
-SHAPELEX_TOOLSET=lean
 SHAPELEX_STORE_DIR=.shapelex-codex
 ```
 
