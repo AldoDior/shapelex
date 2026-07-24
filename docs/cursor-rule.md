@@ -3,7 +3,7 @@
 Use ShapeLex for long-session memory.
 
 - Use `shapelex_memory_overview` when starting work, switching projects, or cleaning memory.
-- Use a readable `sessionId` per project, such as `dad-inventory-app` or `client-portal-fix`.
+- Use a readable `sessionId` per project, such as `inventory-app` or `client-portal`.
 - Compress only long or repeated context.
 - If ShapeLex returns `compressionSkipped: true`, use the exact returned text.
 - Search or retrieve before expanding.

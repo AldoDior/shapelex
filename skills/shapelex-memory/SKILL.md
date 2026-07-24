@@ -27,4 +27,4 @@ ShapeLex primarily saves input tokens by replacing old context with searchable h
 - Keep the newest user request in exact context unless it is very long and the user explicitly asks to compress it.
 - Prefer one targeted expansion over expanding a whole document.
 - Keep chat output short. Spend tokens on code, patches, tests, and concrete instructions rather than long commentary.
-- Use readable session IDs such as `shapelex-docs`, `dad-inventory-app`, or `client-portal-fix`; avoid reusing one session for unrelated projects.
+- Use readable session IDs such as `shapelex-docs`, `inventory-app`, or `client-portal`; avoid reusing one session for unrelated projects.

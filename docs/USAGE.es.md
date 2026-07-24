@@ -1,86 +1,105 @@
 # Guia De Uso De ShapeLex
 
-ShapeLex es un servidor MCP local que ayuda a reducir tokens de entrada en sesiones largas con herramientas de IA como Codex, Claude Code y Cursor.
+Esta guia esta escrita para personas que no necesariamente tienen experiencia tecnica. Si ya sabes usar Node, npm y MCP, puedes ir directo a la seccion de tu app: Codex, Claude Code o Cursor.
 
-La idea simple: ShapeLex guarda texto exacto en tu maquina y le da al agente enlaces compactos `sx://`. El agente puede usar esos enlaces para buscar, resumir o recuperar el texto exacto cuando un detalle importa.
+ShapeLex es un servidor MCP local. En palabras simples: ayuda a que una herramienta de IA recuerde contexto viejo sin tener que pegar todo ese texto otra vez en cada mensaje.
 
-ShapeLex no manda tu memoria a la nube. El almacenamiento local se queda en una carpeta como `.shapelex/`, `.shapelex-codex/`, `.shapelex-cursor/` o `.shapelex-claude/`. Esas carpetas no se deben subir a GitHub.
+## Que Necesitas
 
-## Instalacion Rapida
+Necesitas tres cosas:
 
-Primero revisa que Node.js funcione y que ShapeLex pueda arrancar:
+1. Una computadora con Node.js instalado.
+2. Una herramienta de IA que soporte MCP, como Codex, Claude Code o Cursor.
+3. El paquete npm `shapelex-mcp`.
+
+No necesitas crear una cuenta de npm para usar ShapeLex. La cuenta de npm solo hace falta si quieres publicar un paquete.
+
+## Paso 1: Instalar Node.js
+
+1. Abre [nodejs.org](https://nodejs.org/).
+2. Descarga la version LTS.
+3. Instala Node.js con las opciones normales del instalador.
+4. Cierra y vuelve a abrir tu terminal.
+
+Terminal recomendada:
+
+- Windows: PowerShell o Windows Terminal.
+- macOS: Terminal.
+- Linux: tu terminal normal.
+
+Verifica que Node y npm funcionen:
+
+```powershell
+node --version
+npm --version
+```
+
+Si ambos comandos muestran una version, vas bien.
+
+## Paso 2: Probar ShapeLex
+
+Ejecuta:
 
 ```powershell
 npx -y shapelex-mcp --doctor
 ```
 
-Para iniciar el servidor MCP manualmente:
+Que significa este comando:
+
+- `npx` ejecuta un paquete de npm sin instalarlo globalmente.
+- `-y` acepta la descarga automaticamente.
+- `shapelex-mcp` es el nombre del paquete.
+- `--doctor` revisa si tu maquina esta lista.
+
+Si ves `Result: ready`, ShapeLex funciona.
+
+## Paso 3: Configurar Tu App De IA
+
+Normalmente no vas a abrir ShapeLex a mano. Tu app de IA lo inicia por ti usando este comando:
 
 ```powershell
 npx -y shapelex-mcp
 ```
 
-Normalmente no vas a ejecutar ese segundo comando a mano. Codex, Claude Code o Cursor lo ejecutan por ti cuando configuras el MCP.
-
-## Que Guarda ShapeLex
-
-ShapeLex guarda texto exacto localmente para poder expandir un enlace `sx://` despues.
-
-Ejemplo:
+La configuracion recomendada usa:
 
 ```text
-sx://default/doc/abc123/span/def456
+SHAPELEX_TOOLSET=lean
+SHAPELEX_STORE_DIR=.shapelex
 ```
 
-Ese enlace no contiene todo el texto. Es un puntero. Por eso existe el almacenamiento local.
+`SHAPELEX_TOOLSET=lean` mantiene pocas herramientas visibles para la IA. Esto ayuda a reducir tokens.
 
-## Que Tokens Ahorra
-
-ShapeLex principalmente ahorra tokens de entrada. Eso significa que evita pegar todo el contexto viejo una y otra vez en el prompt.
-
-ShapeLex no comprime automaticamente la respuesta que escribe el modelo. Para ahorrar tokens de salida, pide respuestas cortas y directas. El skill incluido ya recomienda eso.
-
-## Regla Practica
-
-Usa una sesion por proyecto o tarea.
-
-Buenos nombres:
-
-```text
-inventario-papa
-shapelex-docs
-portal-cliente
-```
-
-Evita usar siempre:
-
-```text
-default
-```
-
-Usar `default` para todo funciona, pero mezcla memoria de proyectos diferentes y hace mas dificil limpiar o buscar.
+`SHAPELEX_STORE_DIR=.shapelex` indica donde se guarda la memoria local.
 
 ## Codex
 
-Este repositorio incluye configuracion local para Codex:
+Si estas usando este repositorio directamente, ya existe una configuracion en:
 
 ```text
 .codex/config.toml
 ```
 
-Si instalaste desde npm en otro proyecto, configura el servidor MCP para ejecutar:
+En un proyecto nuevo, configura Codex para iniciar ShapeLex con:
 
 ```text
 npx -y shapelex-mcp
 ```
 
-Luego abre una tarea nueva de Codex y pregunta:
+Usa estas variables:
+
+```text
+SHAPELEX_TOOLSET=lean
+SHAPELEX_STORE_DIR=.shapelex-codex
+```
+
+Para probarlo, abre una tarea nueva en Codex y pregunta:
 
 ```text
 Use ShapeLex memory overview. What memory session am I using?
 ```
 
-El agente deberia responder que sesion esta usando y si hay algo que limpiar.
+La respuesta deberia decir que sesion esta usando y si hay memoria que limpiar.
 
 ## Claude Code
 
@@ -96,19 +115,29 @@ En Windows, si Claude Code no puede abrir `npx` directamente, usa:
 claude mcp add --transport stdio --env SHAPELEX_STORE_DIR=.shapelex-claude --env SHAPELEX_MAX_STORE_MB=100 --env SHAPELEX_TOOLSET=lean shapelex -- cmd /c npx -y shapelex-mcp
 ```
 
-Despues usa:
+Despues revisa:
 
 ```bash
 claude mcp list
 ```
 
-Tambien puedes abrir `/mcp` dentro de Claude Code para revisar que ShapeLex este conectado.
+Dentro de Claude Code tambien puedes abrir:
+
+```text
+/mcp
+```
+
+Eso ayuda a confirmar que ShapeLex esta conectado.
 
 ## Cursor
 
-En Cursor puedes usar `.cursor/mcp.json` dentro del proyecto.
+En Cursor, crea o edita este archivo dentro de tu proyecto:
 
-Configuracion recomendada:
+```text
+.cursor/mcp.json
+```
+
+Contenido recomendado:
 
 ```json
 {
@@ -125,17 +154,53 @@ Configuracion recomendada:
 }
 ```
 
+Luego reinicia Cursor o recarga la ventana.
+
 En el chat de Cursor pregunta:
 
 ```text
 Use ShapeLex memory overview. What memory session am I using?
 ```
 
+## Como Usarlo En Una Sesion Larga
+
+Pide al agente que use ShapeLex cuando el contexto empiece a crecer:
+
+```text
+Use ShapeLex to compress the older context and keep only what you need for the next task.
+```
+
+Cuando un detalle sea importante, pide que expanda el texto exacto:
+
+```text
+Before changing code, expand the relevant ShapeLex handles and verify exact requirements.
+```
+
+## Sesiones
+
+Una sesion es como una caja de memoria. Usa una sesion por proyecto o tarea.
+
+Buenos nombres:
+
+```text
+inventory-app
+shapelex-docs
+client-portal
+```
+
+Evita usar siempre:
+
+```text
+default
+```
+
+Usar `default` para todo mezcla memoria de proyectos diferentes.
+
 ## Limpieza De Memoria
 
 ShapeLex no borra memoria vieja automaticamente. Esto es intencional, porque borrar una sesion puede romper enlaces `sx://` que el agente todavia necesita expandir.
 
-Para revisar memoria, pide al agente:
+Para revisar memoria, pide:
 
 ```text
 Use ShapeLex memory overview. What memory session am I using, and should I clean anything?
@@ -147,6 +212,8 @@ Para mantener solo las sesiones mas recientes, usa `shapelex_prune`.
 
 ## Privacidad
 
+ShapeLex guarda texto exacto localmente. Eso puede incluir codigo privado, instrucciones, notas, logs o texto pegado en una conversacion.
+
 No subas estas carpetas a GitHub:
 
 ```text
@@ -156,21 +223,15 @@ No subas estas carpetas a GitHub:
 .shapelex-claude/
 ```
 
-Este repositorio ya las ignora con `.gitignore`, pero es bueno saberlo.
-
 Si guardaste algo privado por error, borra la sesion con `shapelex_clear` o elimina la carpeta local de ShapeLex.
 
-## Probar Que Todo Funciona
+## Probar Desde El Codigo Fuente
 
-En un proyecto donde tengas ShapeLex instalado, ejecuta:
-
-```powershell
-npx -y shapelex-mcp --doctor
-```
-
-Si estas trabajando desde el codigo fuente del repositorio:
+Esto solo es necesario si quieres contribuir al proyecto o modificar ShapeLex.
 
 ```powershell
+git clone https://github.com/AldoDior/shapelex.git
+cd shapelex
 npm install
 npm run check
 ```
@@ -179,7 +240,8 @@ npm run check
 
 ## Resumen
 
-Usa ShapeLex cuando una sesion de IA se vuelve larga y no quieres pegar todo el contexto viejo otra vez.
-
-Cuando un detalle sea importante, el agente debe expandir el `sx://` para leer el texto exacto.
-
+1. Instala Node.js.
+2. Prueba `npx -y shapelex-mcp --doctor`.
+3. Configura tu app de IA para ejecutar `npx -y shapelex-mcp`.
+4. Usa `SHAPELEX_TOOLSET=lean`.
+5. No subas carpetas `.shapelex*` a GitHub.

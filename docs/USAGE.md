@@ -4,7 +4,58 @@ ShapeLex is a local MCP server that stores exact source text in a private local 
 
 The local store is required because a handle is only a pointer. Without stored exact text, `shapelex_expand` could not recover the original words later.
 
+## What You Need
+
+You need:
+
+1. Node.js installed on your computer.
+2. An AI app that supports MCP, such as Codex, Claude Code, or Cursor.
+3. The npm package `shapelex-mcp`.
+
+You do not need an npm account to use ShapeLex. An npm account is only needed to publish packages.
+
+## Step 1: Install Node.js
+
+1. Go to [nodejs.org](https://nodejs.org/).
+2. Download the LTS version.
+3. Install it with the normal installer options.
+4. Close and reopen your terminal.
+
+Recommended terminal:
+
+- Windows: PowerShell or Windows Terminal.
+- macOS: Terminal.
+- Linux: your normal terminal.
+
+Check that Node and npm work:
+
+```powershell
+node --version
+npm --version
+```
+
+If both commands print a version, you are ready for the next step.
+
+## Step 2: Test ShapeLex
+
+Run:
+
+```powershell
+npx -y shapelex-mcp --doctor
+```
+
+What this means:
+
+- `npx` runs an npm package without installing it globally.
+- `-y` accepts the package download prompt automatically.
+- `shapelex-mcp` is the package name.
+- `--doctor` checks whether your machine is ready.
+
+If you see `Result: ready`, ShapeLex works.
+
 ## Install From Source
+
+This is only needed if you want to develop ShapeLex itself.
 
 ```powershell
 npm install
@@ -100,14 +151,27 @@ ShapeLex is designed as a local stdio MCP server. This repo includes a project-l
 .codex/config.toml
 ```
 
-Before testing in Codex:
+If you are using this repository directly, build it first:
 
 ```powershell
 npm install
 npm run build
 ```
 
-Then open a new Codex task in this trusted repo. Ask:
+For npm usage in another project, configure Codex to start ShapeLex with:
+
+```text
+npx -y shapelex-mcp
+```
+
+Use these environment variables:
+
+```text
+SHAPELEX_TOOLSET=lean
+SHAPELEX_STORE_DIR=.shapelex-codex
+```
+
+Then open a new Codex task and ask:
 
 ```text
 Use ShapeLex memory overview. What memory session am I using?
@@ -233,9 +297,9 @@ A session is just a memory box. Use one memory box per project or task.
 Good session names:
 
 ```text
-dad-inventory-app
+inventory-app
 shapelex-docs
-client-portal-fix
+client-portal
 ```
 
 Bad pattern:

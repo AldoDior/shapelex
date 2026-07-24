@@ -138,12 +138,12 @@ test("prune can keep only the newest sessions", () => {
 
 test("memoryOverview explains current session and cleanup suggestions", () => {
   const engine = new ShapeLexEngine();
-  engine.compressText({ sessionId: "dad-inventory-app", text: "Inventory project context. ".repeat(30), label: "inventory-notes" });
+  engine.compressText({ sessionId: "inventory-app", text: "Inventory project context. ".repeat(30), label: "inventory-notes" });
 
-  const overview = engine.memoryOverview({ sessionId: "dad-inventory-app" });
+  const overview = engine.memoryOverview({ sessionId: "inventory-app" });
 
-  assert.equal(overview.currentSessionId, "dad-inventory-app");
-  assert.match(overview.plainEnglish, /dad-inventory-app/);
+  assert.equal(overview.currentSessionId, "inventory-app");
+  assert.match(overview.plainEnglish, /inventory-app/);
   assert.equal(overview.sessions[0].isCurrent, true);
   assert.ok(overview.sessions[0].labels.includes("inventory-notes"));
   assert.ok(overview.cleanupExamples.previewOldSessions.dryRun);
