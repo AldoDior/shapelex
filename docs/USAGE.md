@@ -328,6 +328,13 @@ The report compares:
 
 This is not a full AI quality benchmark. It is a repeatable mechanical check that the MCP workflow can reduce input context while keeping the facts needed for a coding task.
 
+Latest measured example:
+
+- Raw prompt estimate: `2160` tokens.
+- ShapeLex prompt estimate: `699` tokens.
+- Approximate prompt-token reduction: `67.6%`.
+- Result: same required facts and same coding decision.
+
 ## End-To-End Eval
 
 Run the simulated end-to-end coding workflow eval:
@@ -350,6 +357,29 @@ It compares:
 - per-scenario token savings
 
 This does not call a live AI model. It is a deterministic workflow simulation, useful for regression testing ShapeLex behavior. A true live-model benchmark should run real Codex/Cursor/Claude tasks twice and compare final diffs, tests, and transcript token usage.
+
+Latest measured example:
+
+- Three simulated coding scenarios.
+- Raw prompt total: `6573` tokens.
+- ShapeLex lean prompt total: `2148` tokens.
+- Approximate lean prompt-token reduction: `67.3%`.
+- Full-mode loaded total, including tool schema: `4722` tokens.
+- Approximate full-mode loaded reduction versus raw: `27.9%`.
+- Raw quality score: `1.0`.
+- ShapeLex quality score: `1.0`.
+
+These numbers are examples from the deterministic test suite, not a universal promise. Savings are usually better when old context is large and repeated. Savings can be small or zero for tiny tasks, exact code snippets, or cases where the agent needs to expand many handles.
+
+## Agent Adoption Eval
+
+Run the agent-driven usage simulation:
+
+```powershell
+npm run agent-eval
+```
+
+This checks whether a compliant agent would choose ShapeLex without the user manually saying "use ShapeLex". The latest run expected ShapeLex in `5` of `6` scenarios and selected it in all `5`. It also checked that the agent suggests lean mode, full mode, session switching, and cleanup preview in the expected cases.
 
 ## Sessions In Plain English
 

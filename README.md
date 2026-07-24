@@ -203,8 +203,22 @@ npm run doctor
 npm test
 npm run smoke
 npm run e2e
+npm run agent-eval
 npm run benchmark
 ```
+
+## Simulation Results
+
+Before publishing, the repo was tested with deterministic raw-context versus ShapeLex-context simulations. These tests do not call a live AI model; they compare prompt size, retained facts, and generated-code checks in repeatable scenarios.
+
+Latest local run:
+
+- Smoke coding task: raw `2160` prompt tokens, ShapeLex `699`, about `67.6%` fewer prompt tokens, same required facts and decision.
+- End-to-end coding simulation: raw `6573` prompt tokens, ShapeLex lean `2148`, about `67.3%` fewer prompt tokens, same quality score.
+- End-to-end with full-mode tool schema included: `4722` loaded tokens, about `27.9%` fewer than raw.
+- Agent adoption simulation: ShapeLex was expected in `5` of `6` scenarios and selected in all `5`; it also suggested lean, full, session switch, and cleanup preview in the expected cases.
+
+Real savings depend on the size of the context, the active MCP toolset, the AI app, and whether the agent follows the project instructions. Small tasks may not save tokens, and ShapeLex should skip compression when the handle overhead would cost more than the original text.
 
 ## MCP Tools
 
@@ -373,6 +387,19 @@ Instrucciones completas:
 Si la configuración se siente confusa, copia el prompt de ayuda de [docs/AGENT_SETUP_PROMPT.md](docs/AGENT_SETUP_PROMPT.md) en Codex, Claude Code o Cursor y pídele al agente que te guíe.
 
 Para mejores resultados, agrega también la regla de agente de [docs/AGENT_INSTRUCTIONS.md](docs/AGENT_INSTRUCTIONS.md). Esa regla le dice a la IA que use ShapeLex proactivamente en sesiones largas en vez de esperar a que tú lo recuerdes.
+
+## Resultados De Simulación
+
+Antes de publicar, el repo se probó con simulaciones determinísticas comparando contexto raw contra contexto con ShapeLex. Estas pruebas no llaman a un modelo de IA real; comparan tamaño del prompt, hechos retenidos y checks de código generado en escenarios repetibles.
+
+Última ejecución local:
+
+- Smoke test de código: raw `2160` tokens de prompt, ShapeLex `699`, aproximadamente `67.6%` menos tokens de prompt, con los mismos hechos requeridos y la misma decisión.
+- Simulación end-to-end: raw `6573` tokens de prompt, ShapeLex lean `2148`, aproximadamente `67.3%` menos tokens de prompt, con la misma calidad.
+- End-to-end incluyendo el schema de herramientas en modo full: `4722` tokens cargados, aproximadamente `27.9%` menos que raw.
+- Simulación de adopción por agente: se esperaba ShapeLex en `5` de `6` escenarios y se eligió en los `5`; también sugirió lean, full, cambio de sesión y vista previa de limpieza en los casos esperados.
+
+Estos números son ejemplos de la suite determinística, no una promesa universal. El ahorro real depende del tamaño del contexto, el toolset activo, la app de IA y si el agente sigue las instrucciones del proyecto. En tareas pequeñas puede no haber ahorro.
 
 ## Privacidad
 

@@ -291,7 +291,20 @@ npm install
 npm run check
 ```
 
-`npm run check` corre doctor, typecheck, lint, tests, smoke test, eval end-to-end y benchmark.
+`npm run check` corre doctor, typecheck, lint, tests, smoke test, eval end-to-end, agent-eval y benchmark.
+
+## Resultados De Simulación
+
+Antes de publicar, el repo se probó con simulaciones determinísticas comparando contexto raw contra contexto con ShapeLex. Estas pruebas no llaman a un modelo de IA real; comparan tamaño del prompt, hechos retenidos y checks de código generado en escenarios repetibles.
+
+Última ejecución local:
+
+- Smoke test de código: raw `2160` tokens de prompt, ShapeLex `699`, aproximadamente `67.6%` menos tokens de prompt, con los mismos hechos requeridos y la misma decisión.
+- Simulación end-to-end: raw `6573` tokens de prompt, ShapeLex lean `2148`, aproximadamente `67.3%` menos tokens de prompt, con la misma calidad.
+- End-to-end incluyendo el schema de herramientas en modo full: `4722` tokens cargados, aproximadamente `27.9%` menos que raw.
+- Simulación de adopción por agente: se esperaba ShapeLex en `5` de `6` escenarios y se eligió en los `5`; también sugirió lean, full, cambio de sesión y vista previa de limpieza en los casos esperados.
+
+Estos números son ejemplos de la suite determinística, no una promesa universal. El ahorro real depende del tamaño del contexto, el toolset activo, la app de IA y si el agente sigue las instrucciones del proyecto. En tareas pequeñas puede no haber ahorro.
 
 ## Resumen
 
