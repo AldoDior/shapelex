@@ -142,6 +142,8 @@ For detailed setup instructions, see:
 - English: [docs/USAGE.md](docs/USAGE.md)
 - Spanish: [docs/USAGE.es.md](docs/USAGE.es.md)
 
+If setup feels confusing, copy the helper prompt from [docs/AGENT_SETUP_PROMPT.md](docs/AGENT_SETUP_PROMPT.md) into Codex, Claude Code, or Cursor and ask the agent to guide you.
+
 ## How It Works
 
 ShapeLex stores exact source text in a private local store and gives the agent compact handles.
@@ -353,6 +355,8 @@ Instrucciones completas:
 
 - Inglés: [docs/USAGE.md](docs/USAGE.md)
 - Español: [docs/USAGE.es.md](docs/USAGE.es.md)
+
+Si la configuración se siente confusa, copia el prompt de ayuda de [docs/AGENT_SETUP_PROMPT.md](docs/AGENT_SETUP_PROMPT.md) en Codex, Claude Code o Cursor y pídele al agente que te guíe.
 
 ## Privacidad
 

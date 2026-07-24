@@ -53,6 +53,10 @@ Qué significa este comando:
 
 Si ves `Result: ready`, ShapeLex funciona.
 
+## Pedir Ayuda A Un Agente
+
+Si configurar MCP se siente confuso, copia el prompt de [docs/AGENT_SETUP_PROMPT.md](AGENT_SETUP_PROMPT.md) en Codex, Claude Code o Cursor. Ese prompt le pide al agente verificar Node.js, configurar ShapeLex de forma segura, evitar subir carpetas `.shapelex*` y probar la configuración.
+
 ## Paso 3: Configurar Tu App De IA
 
 Normalmente no vas a abrir ShapeLex a mano. Tu app de IA lo inicia por ti usando este comando:

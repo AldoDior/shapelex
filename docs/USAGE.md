@@ -53,6 +53,10 @@ What this means:
 
 If you see `Result: ready`, ShapeLex works.
 
+## Ask An Agent To Help
+
+If MCP setup feels confusing, copy the prompt in [docs/AGENT_SETUP_PROMPT.md](AGENT_SETUP_PROMPT.md) into Codex, Claude Code, or Cursor. It tells the agent to verify Node.js, configure ShapeLex safely, avoid committing `.shapelex*` memory folders, and test the setup.
+
 ## Install From Source
 
 This is only needed if you want to develop ShapeLex itself.
