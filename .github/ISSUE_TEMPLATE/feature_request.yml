@@ -1,0 +1,28 @@
+name: Feature request
+description: Suggest an improvement for ShapeLex
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use case
+      description: What are you trying to do?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What should ShapeLex change?
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - MCP tools
+        - Compression quality
+        - Storage
+        - Codex/Claude/Cursor setup
+        - Documentation
+        - Other

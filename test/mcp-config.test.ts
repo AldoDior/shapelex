@@ -19,3 +19,15 @@ test("shared MCP configs use lean ShapeLex toolset and private local stores", ()
     assert.match(shapelex.env.SHAPELEX_STORE_DIR, /^\.shapelex-/);
   }
 });
+
+test("package metadata is ready for public npm and GitHub", () => {
+  const packageJson = JSON.parse(fs.readFileSync("package.json", "utf8"));
+
+  assert.equal(packageJson.license, "MIT");
+  assert.equal(packageJson.repository.type, "git");
+  assert.match(packageJson.repository.url, /github\.com\/AldoDior\/ShapeLex/);
+  assert.match(packageJson.bugs.url, /github\.com\/AldoDior\/ShapeLex\/issues/);
+  assert.equal(packageJson.publishConfig.access, "public");
+  assert.ok(packageJson.files.includes("CHANGELOG.md"));
+  assert.ok(packageJson.files.includes("CONTRIBUTING.md"));
+});

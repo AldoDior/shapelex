@@ -306,7 +306,7 @@ async function dispatch(targetEngine: ShapeLexEngine, activeTools: any[], method
     case "tools/list":
       return { tools: activeTools };
     case "tools/call":
-      return callTool(targetEngine, params);
+      return callTool(targetEngine, activeTools, params);
     case "resources/list":
       return targetEngine.listResources(params);
     case "resources/read":
@@ -316,13 +316,16 @@ async function dispatch(targetEngine: ShapeLexEngine, activeTools: any[], method
   }
 }
 
-function callTool(targetEngine: ShapeLexEngine, params: any): any {
+function callTool(targetEngine: ShapeLexEngine, activeTools: any[], params: any): any {
   if (!params || typeof params !== "object") {
     throw new TypeError("tools/call params must be an object");
   }
   const { name, arguments: args = {} } = params;
   if (typeof name !== "string") {
     throw new TypeError("tools/call params.name must be a string");
+  }
+  if (!activeTools.some((tool) => tool.name === name)) {
+    throw new Error(`Tool is not available in the active ShapeLex toolset: ${name}`);
   }
   if (!args || typeof args !== "object" || Array.isArray(args)) {
     throw new TypeError("tools/call params.arguments must be an object");

@@ -5,6 +5,14 @@
   "type": "module",
   "main": "./dist/src/shapelex.js",
   "types": "./dist/src/shapelex.d.ts",
+  "homepage": "https://github.com/AldoDior/ShapeLex#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AldoDior/ShapeLex.git"
+  },
+  "bugs": {
+    "url": "https://github.com/AldoDior/ShapeLex/issues"
+  },
   "files": [
     "bin/",
     "docs/",
@@ -12,6 +20,8 @@
     "dist/src/**/*.js",
     "skills/",
     "README.md",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
     "LICENSE",
     "SECURITY.md"
   ],
@@ -31,9 +41,13 @@
   "keywords": [
     "mcp",
     "llm",
+    "ai",
     "compression",
     "context",
-    "fingerprinting"
+    "fingerprinting",
+    "codex",
+    "claude",
+    "cursor"
   ],
   "license": "MIT",
   "engines": {

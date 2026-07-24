@@ -187,6 +187,22 @@ test("MCP lean toolset exposes only the core low-overhead tools", async () => {
   ]);
 });
 
+test("MCP lean toolset rejects hidden full-tool calls", async () => {
+  const engine = new ShapeLexEngine();
+  const handleLeanJsonRpc = createJsonRpcHandler(engine, { toolset: "lean" });
+  const response = await handleLeanJsonRpc({
+    jsonrpc: "2.0",
+    id: 32,
+    method: "tools/call",
+    params: {
+      name: "shapelex_stats",
+      arguments: {}
+    }
+  });
+
+  assert.match(response.error.message, /not available/);
+});
+
 test("MCP memory overview explains sessions", async () => {
   await handleJsonRpc({
     jsonrpc: "2.0",

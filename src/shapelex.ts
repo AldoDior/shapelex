@@ -180,7 +180,7 @@ export class ShapeLexEngine {
       return {
         handle,
         text: document.text,
-      metadata: {
+        metadata: {
           documentId: document.id,
           uri: document.uri,
           label: document.label,
