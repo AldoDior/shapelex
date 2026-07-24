@@ -1,9 +1,11 @@
 import process from "node:process";
 import readline from "node:readline";
-import { ShapeLexEngine } from "./shapelex.js";
+import { DEFAULT_MAX_STORE_BYTES, ShapeLexEngine } from "./shapelex.js";
 
 const engine = new ShapeLexEngine({
-  storageDir: process.env.SHAPELEX_STORE_DIR ?? ".shapelex"
+  storageDir: process.env.SHAPELEX_STORE_DIR ?? ".shapelex",
+  persistent: process.env.SHAPELEX_PERSIST !== "0",
+  maxStoreBytes: maxStoreBytesFromEnv(process.env.SHAPELEX_MAX_STORE_MB)
 });
 
 const tools = [
@@ -30,7 +32,12 @@ const tools = [
           }
         },
         budgetTokens: { type: "number" }
-      }
+      },
+      anyOf: [
+        { required: ["text"] },
+        { required: ["messages"] }
+      ],
+      additionalProperties: false
     }
   },
   {
@@ -51,9 +58,11 @@ const tools = [
             required: ["role", "content"]
           }
         },
+        label: { type: "string" },
         budgetTokens: { type: "number" }
       },
-      required: ["messages"]
+      required: ["messages"],
+      additionalProperties: false
     }
   },
   {
@@ -65,9 +74,11 @@ const tools = [
         sessionId: { type: "string" },
         text: { type: "string" },
         label: { type: "string" },
-        mode: { type: "string", enum: ["message", "doc", "code"] }
+        mode: { type: "string", enum: ["text", "doc", "message", "code"] },
+        budgetTokens: { type: "number" }
       },
-      required: ["text"]
+      required: ["text"],
+      additionalProperties: false
     }
   },
   {
@@ -79,7 +90,8 @@ const tools = [
         sessionId: { type: "string" },
         handle: { type: "string" }
       },
-      required: ["handle"]
+      required: ["handle"],
+      additionalProperties: false
     }
   },
   {
@@ -94,7 +106,8 @@ const tools = [
         mode: { type: "string", enum: ["text", "code", "conversation"] },
         limit: { type: "number" }
       },
-      required: ["query"]
+      required: ["query"],
+      additionalProperties: false
     }
   },
   {
@@ -109,7 +122,8 @@ const tools = [
         level: { type: "number" },
         query: { type: "string" }
       },
-      required: ["uri"]
+      required: ["uri"],
+      additionalProperties: false
     }
   },
   {
@@ -122,7 +136,8 @@ const tools = [
         sessionId: { type: "string" },
         uri: { type: "string" }
       },
-      required: ["uri"]
+      required: ["uri"],
+      additionalProperties: false
     }
   },
   {
@@ -135,7 +150,12 @@ const tools = [
         sessionId: { type: "string" },
         uri: { type: "string" },
         text: { type: "string" }
-      }
+      },
+      anyOf: [
+        { required: ["uri"] },
+        { required: ["text"] }
+      ],
+      additionalProperties: false
     }
   },
   {
@@ -145,7 +165,19 @@ const tools = [
       type: "object",
       properties: {
         sessionId: { type: "string" }
-      }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "shapelex_memory_overview",
+    description: "Explain ShapeLex sessions in plain language and suggest cleanup actions.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sessionId: { type: "string" }
+      },
+      additionalProperties: false
     }
   },
   {
@@ -155,7 +187,21 @@ const tools = [
       type: "object",
       properties: {
         sessionId: { type: "string" }
-      }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "shapelex_prune",
+    description: "Preview or remove old ShapeLex sessions by last access time or maximum session count.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        olderThanDays: { type: "number" },
+        maxSessions: { type: "number" },
+        dryRun: { type: "boolean" }
+      },
+      additionalProperties: false
     }
   }
 ];
@@ -236,7 +282,16 @@ async function dispatch(method: any, params: any): Promise<any> {
 }
 
 function callTool(params: any): any {
+  if (!params || typeof params !== "object") {
+    throw new TypeError("tools/call params must be an object");
+  }
   const { name, arguments: args = {} } = params;
+  if (typeof name !== "string") {
+    throw new TypeError("tools/call params.name must be a string");
+  }
+  if (!args || typeof args !== "object" || Array.isArray(args)) {
+    throw new TypeError("tools/call params.arguments must be an object");
+  }
   let result;
 
   switch (name) {
@@ -267,8 +322,14 @@ function callTool(params: any): any {
     case "shapelex_stats":
       result = engine.stats(args);
       break;
+    case "shapelex_memory_overview":
+      result = engine.memoryOverview(args);
+      break;
     case "shapelex_clear":
       result = engine.clear(args);
+      break;
+    case "shapelex_prune":
+      result = engine.prune(args);
       break;
     default:
       throw new Error(`Unknown tool: ${name}`);
@@ -294,4 +355,15 @@ function errorResponse(id: any, error: any): any {
       message: error instanceof Error ? error.message : String(error)
     }
   };
+}
+
+function maxStoreBytesFromEnv(value: string | undefined) {
+  if (value === undefined || value.trim() === "") {
+    return DEFAULT_MAX_STORE_BYTES;
+  }
+  const megabytes = Number(value);
+  if (!Number.isFinite(megabytes) || megabytes < 1) {
+    throw new TypeError("SHAPELEX_MAX_STORE_MB must be a number greater than or equal to 1");
+  }
+  return Math.floor(megabytes * 1024 * 1024);
 }

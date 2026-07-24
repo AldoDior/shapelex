@@ -5,6 +5,16 @@
   "type": "module",
   "main": "./dist/src/shapelex.js",
   "types": "./dist/src/shapelex.d.ts",
+  "files": [
+    "bin/",
+    "docs/",
+    "dist/src/**/*.d.ts",
+    "dist/src/**/*.js",
+    "skills/",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md"
+  ],
   "bin": {
     "shapelex-mcp": "./bin/shapelex-mcp.js"
   },
@@ -12,7 +22,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "npm run build && node ./bin/shapelex-mcp.js",
     "test": "npm run build && node --test \"dist/test/*.test.js\"",
-    "benchmark": "npm run build && node ./dist/src/shapelex-benchmark.js"
+    "benchmark": "npm run build && node ./dist/src/shapelex-benchmark.js",
+    "prepack": "npm run build"
   },
   "keywords": [
     "mcp",
@@ -25,6 +36,10 @@
   "engines": {
     "node": ">=18"
   },
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false,
   "devDependencies": {
     "@types/node": "^26.0.0",
     "typescript": "^6.0.3"

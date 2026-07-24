@@ -38,6 +38,16 @@ test("compressText creates expandable handles for long spans", () => {
   assert.equal(expanded, text.trim());
 });
 
+test("compressText skips compression when metadata would cost more tokens", () => {
+  const engine = new ShapeLexEngine();
+  const compressed = engine.compressText({ sessionId: "tiny", text: "Short exact note.", label: "tiny-note" });
+
+  assert.equal(compressed.compressionSkipped, true);
+  assert.equal(compressed.compressedText, "Short exact note.");
+  assert.equal(compressed.savingsRatio, 0);
+  assert.ok(compressed.handles.length > 0);
+});
+
 test("compressMessages preserves short latest message and compresses older long context", () => {
   const engine = new ShapeLexEngine();
   const messages = [
@@ -74,6 +84,15 @@ test("persistent storage restores expandable handles across engine instances", (
   assert.equal(second.stats({ sessionId: "persist" }).activeHandles, compressed.handles.length);
 });
 
+test("stats report persistence strategy and configurable store limit", () => {
+  const engine = new ShapeLexEngine({ storageDir: "local-store", maxStoreBytes: 2 * 1024 * 1024 });
+  const stats = engine.stats();
+
+  assert.equal(stats.persistence.enabled, true);
+  assert.equal(stats.persistence.maxStoreBytes, 2 * 1024 * 1024);
+  assert.equal(stats.persistence.strategy, "single-json-file");
+});
+
 test("persistent clear removes sessions from the store", () => {
   const storageDir = fs.mkdtempSync(path.join(os.tmpdir(), "shapelex-clear-"));
   const first = new ShapeLexEngine({ storageDir });
@@ -82,6 +101,52 @@ test("persistent clear removes sessions from the store", () => {
 
   const second = new ShapeLexEngine({ storageDir });
   assert.equal(second.stats({ sessionId: "clear-persist" }).activeHandles, 0);
+});
+
+test("prune previews and removes old sessions without clearing recent work", () => {
+  const engine = new ShapeLexEngine();
+  engine.compressText({ sessionId: "old-project", text: "Old project context. ".repeat(30) });
+  engine.compressText({ sessionId: "new-project", text: "New project context. ".repeat(30) });
+
+  const oldSession = engine.sessions.get("old-project");
+  oldSession.lastAccessedAt = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+  const preview = engine.prune({ olderThanDays: 14, dryRun: true });
+  assert.deepEqual(preview.removedSessions, ["old-project"]);
+  assert.equal(engine.stats().activeDocuments, 2);
+
+  const pruned = engine.prune({ olderThanDays: 14 });
+  assert.deepEqual(pruned.removedSessions, ["old-project"]);
+  assert.equal(engine.stats().activeDocuments, 1);
+  assert.equal(engine.stats({ sessionId: "new-project" }).activeDocuments, 1);
+});
+
+test("prune can keep only the newest sessions", () => {
+  const engine = new ShapeLexEngine();
+  engine.compressText({ sessionId: "project-a", text: "A context. ".repeat(30) });
+  engine.compressText({ sessionId: "project-b", text: "B context. ".repeat(30) });
+  engine.compressText({ sessionId: "project-c", text: "C context. ".repeat(30) });
+
+  engine.sessions.get("project-a").lastAccessedAt = new Date(Date.now() - 3_000).toISOString();
+  engine.sessions.get("project-b").lastAccessedAt = new Date(Date.now() - 2_000).toISOString();
+  engine.sessions.get("project-c").lastAccessedAt = new Date(Date.now() - 1_000).toISOString();
+
+  const pruned = engine.prune({ maxSessions: 2 });
+  assert.deepEqual(pruned.removedSessions, ["project-a"]);
+  assert.equal(engine.stats().sessions.length, 2);
+});
+
+test("memoryOverview explains current session and cleanup suggestions", () => {
+  const engine = new ShapeLexEngine();
+  engine.compressText({ sessionId: "dad-inventory-app", text: "Inventory project context. ".repeat(30), label: "inventory-notes" });
+
+  const overview = engine.memoryOverview({ sessionId: "dad-inventory-app" });
+
+  assert.equal(overview.currentSessionId, "dad-inventory-app");
+  assert.match(overview.plainEnglish, /dad-inventory-app/);
+  assert.equal(overview.sessions[0].isCurrent, true);
+  assert.ok(overview.sessions[0].labels.includes("inventory-notes"));
+  assert.ok(overview.cleanupExamples.previewOldSessions.dryRun);
 });
 
 test("MCP tools/list and tools/call expose compression", async () => {
@@ -103,6 +168,36 @@ test("MCP tools/list and tools/call expose compression", async () => {
 
   assert.equal(call.result.structuredContent.sessionId, "mcp");
   assert.ok(call.result.structuredContent.handles.length > 0);
+});
+
+test("MCP memory overview explains sessions", async () => {
+  await handleJsonRpc({
+    jsonrpc: "2.0",
+    id: 21,
+    method: "tools/call",
+    params: {
+      name: "shapelex_compress_text",
+      arguments: {
+        sessionId: "overview-session",
+        text: "Readable memory overview context. ".repeat(20)
+      }
+    }
+  });
+
+  const overview = await handleJsonRpc({
+    jsonrpc: "2.0",
+    id: 22,
+    method: "tools/call",
+    params: {
+      name: "shapelex_memory_overview",
+      arguments: {
+        sessionId: "overview-session"
+      }
+    }
+  });
+
+  assert.equal(overview.result.structuredContent.currentSessionId, "overview-session");
+  assert.match(overview.result.structuredContent.plainEnglish, /overview-session/);
 });
 
 test("compress creates navigable levels with risk assessment", () => {
@@ -208,4 +303,38 @@ test("MCP resources expose ShapeLex documents and levels", async () => {
   });
 
   assert.ok(read.result.contents[0].text.includes("dual approval"));
+});
+
+test("session ids and sx handles are validated", () => {
+  const engine = new ShapeLexEngine();
+  const compressed = engine.compressText({
+    sessionId: "safe-session",
+    text: "Never rotate credential 123 without approval.".repeat(20)
+  });
+
+  assert.throws(
+    () => engine.compressText({ sessionId: "../bad", text: "unsafe" }),
+    /sessionId must/
+  );
+  assert.throws(
+    () => engine.expand({ sessionId: "other-session", handle: compressed.handles[0].uri }),
+    /Unknown ShapeLex session|session mismatch/
+  );
+  assert.throws(
+    () => engine.retrieve({ sessionId: "safe-session", uri: compressed.uri, level: 9 }),
+    /level must/
+  );
+});
+
+test("MCP tools/call validates tool arguments", async () => {
+  const missingName = await handleJsonRpc({
+    jsonrpc: "2.0",
+    id: 20,
+    method: "tools/call",
+    params: {
+      arguments: {}
+    }
+  });
+
+  assert.match(missingName.error.message, /params.name/);
 });

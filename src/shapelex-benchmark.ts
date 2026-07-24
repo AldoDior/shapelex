@@ -72,9 +72,9 @@ export function runBenchmark() {
     results.push({
       name: item.name,
       mode: item.mode,
-      rawTokens: estimateTokens(rawText),
+      rawTokens: compressed.rawTokenEstimate,
       fullContext: {
-        tokens: estimateTokens(rawText),
+        tokens: compressed.rawTokenEstimate,
         factRecall: recall(facts, rawEvidence)
       },
       shapeLexLegacyLike: {

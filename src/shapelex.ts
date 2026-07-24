@@ -5,10 +5,17 @@ import path from "node:path";
 const DEFAULT_SESSION_ID = "default";
 const STORE_VERSION = 1;
 const DEFAULT_STORE_FILE = "shapelex-store.json";
+export const DEFAULT_MAX_STORE_BYTES = 100 * 1024 * 1024;
+const MAX_TEXT_CHARS = 2_000_000;
+const MAX_QUERY_CHARS = 2_000;
+const MAX_LABEL_CHARS = 200;
 const LONG_SPAN_CHARS = 240;
 const RECENT_MESSAGE_CHARS = 900;
+const MIN_TOKEN_SAVINGS_RATIO = 0.15;
 const MAX_ANCHORS = 12;
 const CONTEXT_RADIUS = 90;
+const SESSION_ID_PATTERN = /^[A-Za-z0-9._-]{1,80}$/;
+const TEXT_MODES = new Set(["text", "doc", "message", "code"]);
 const VOWELS = new Set(["a", "e", "i", "o", "u", "y"]);
 const STOPWORDS = new Set([
   "the", "and", "for", "with", "that", "this", "from", "have", "has", "had",
@@ -35,18 +42,27 @@ const ACTION_WORDS = new Set([
 export class ShapeLexEngine {
   sessions: Map<string, any>;
   persistent: boolean;
+  maxStoreBytes: number;
   storageDir?: string;
   storePath?: string;
 
-  constructor({ storageDir, persistent = Boolean(storageDir) }: { storageDir?: string; persistent?: boolean } = {}) {
+  constructor({
+    storageDir,
+    persistent = Boolean(storageDir),
+    maxStoreBytes = DEFAULT_MAX_STORE_BYTES
+  }: { storageDir?: string; persistent?: boolean; maxStoreBytes?: number } = {}) {
     this.sessions = new Map();
     this.persistent = persistent;
+    this.maxStoreBytes = normalizeMaxStoreBytes(maxStoreBytes);
     this.storageDir = storageDir ? path.resolve(storageDir) : undefined;
     this.storePath = this.storageDir ? path.join(this.storageDir, DEFAULT_STORE_FILE) : undefined;
     this.#loadStore();
   }
 
   compress(input: any) {
+    if (!input || typeof input !== "object") {
+      throw new TypeError("input must be an object");
+    }
     const mode = input.mode ?? (input.messages ? "conversation" : "text");
     if (Array.isArray(input.messages)) {
       return this.compressMessages({ ...input, mode: "conversation" });
@@ -55,9 +71,11 @@ export class ShapeLexEngine {
   }
 
   compressText({ sessionId = DEFAULT_SESSION_ID, text, label = "text", mode = "text", budgetTokens }: any = {}) {
-    assertString(text, "text");
+    assertBoundedString(text, "text", MAX_TEXT_CHARS);
+    const normalizedMode = normalizeTextMode(mode);
+    const normalizedLabel = normalizeLabel(label);
     const session = this.#session(sessionId);
-    const document = this.#createDocument(session, { text, label, mode });
+    const document = this.#createDocument(session, { text, label: normalizedLabel, mode: normalizedMode });
     const compressedText = renderNavigableDocument(document);
     const payload = resultPayload(session.id, compressedText, document.handles, text);
 
@@ -78,21 +96,24 @@ export class ShapeLexEngine {
       payload.withinBudget = payload.compressedTokenEstimate <= budgetTokens;
     }
 
-    return payload;
+    return applyCompressionPolicy(payload, text);
   }
 
   compressMessages({ sessionId = DEFAULT_SESSION_ID, messages, budgetTokens, label = "conversation" }: any = {}) {
     if (!Array.isArray(messages)) {
       throw new TypeError("messages must be an array");
     }
+    messages.forEach(assertMessage);
+    const normalizedLabel = normalizeLabel(label);
 
     const text = messages
       .map((message, index) => `[${message.role ?? "unknown"}#${index}] ${message.content ?? ""}`)
       .join("\n\n");
+    assertBoundedString(text, "messages", MAX_TEXT_CHARS);
     const session = this.#session(sessionId);
     const document = this.#createDocument(session, {
       text,
-      label,
+      label: normalizedLabel,
       mode: "conversation",
       messages
     });
@@ -136,17 +157,19 @@ export class ShapeLexEngine {
       payload.withinBudget = payload.compressedTokenEstimate <= budgetTokens;
     }
 
-    return payload;
+    return applyCompressionPolicy(payload, text);
   }
 
   expand({ sessionId = DEFAULT_SESSION_ID, handle }: any): any {
     assertString(handle, "handle");
-    const session = this.sessions.get(sessionId);
+    const id = normalizeSessionId(sessionId);
+    const session = this.sessions.get(id);
     if (!session) {
-      throw new Error(`Unknown ShapeLex session: ${sessionId}`);
+      throw new Error(`Unknown ShapeLex session: ${id}`);
     }
 
     const parsed = parseShapeLexUri(handle);
+    assertUriSession(parsed.sessionId, id, handle);
     if (parsed.kind === "doc") {
       const document = session.documents.get(parsed.id);
       if (!document) {
@@ -183,17 +206,20 @@ export class ShapeLexEngine {
   }
 
   search({ sessionId = DEFAULT_SESSION_ID, query, mode, limit = 8 }: any = {}) {
-    assertString(query, "query");
-    const session = this.sessions.get(sessionId);
+    assertBoundedString(query, "query", MAX_QUERY_CHARS);
+    const id = normalizeSessionId(sessionId);
+    const normalizedMode = mode === undefined ? undefined : normalizeSearchMode(mode);
+    const normalizedLimit = normalizeLimit(limit);
+    const session = this.sessions.get(id);
     if (!session) {
-      throw new Error(`Unknown ShapeLex session: ${sessionId}`);
+      throw new Error(`Unknown ShapeLex session: ${id}`);
     }
 
     const queryTokens = tokenize(query).map((token) => token.toLowerCase());
     const results = [];
 
     for (const document of session.documents.values()) {
-      if (mode && document.mode !== mode) {
+      if (normalizedMode && document.mode !== normalizedMode) {
         continue;
       }
       const score = scoreDocument(document, queryTokens);
@@ -213,22 +239,25 @@ export class ShapeLexEngine {
     }
 
     return {
-      sessionId,
+      sessionId: id,
       query,
-      results: results.sort((a, b) => b.score - a.score).slice(0, limit)
+      results: results.sort((a, b) => b.score - a.score).slice(0, normalizedLimit)
     };
   }
 
   retrieve({ sessionId = DEFAULT_SESSION_ID, uri, level = 1, query }: any = {}): any {
     assertString(uri, "uri");
-    const session = this.sessions.get(sessionId);
+    const id = normalizeSessionId(sessionId);
+    const normalizedLevel = normalizeLevel(level);
+    const session = this.sessions.get(id);
     if (!session) {
-      throw new Error(`Unknown ShapeLex session: ${sessionId}`);
+      throw new Error(`Unknown ShapeLex session: ${id}`);
     }
 
     const parsed = parseShapeLexUri(uri);
+    assertUriSession(parsed.sessionId, id, uri);
     if (parsed.kind === "span") {
-      return this.expand({ sessionId, handle: uri });
+      return this.expand({ sessionId: id, handle: uri });
     }
 
     const document = session.documents.get(parsed.id);
@@ -236,28 +265,27 @@ export class ShapeLexEngine {
       throw new Error(`Unknown ShapeLex document: ${uri}`);
     }
 
-    const normalizedLevel = String(level);
     const levels = {};
     for (const key of ["0", "1", "2", "3", "4"]) {
-      if (Number(key) <= Number(normalizedLevel)) {
+      if (Number(key) <= normalizedLevel) {
         levels[key] = document.levels[key];
       }
     }
 
     const response: any = {
-      sessionId,
+      sessionId: id,
       documentId: document.id,
       uri: document.uri,
       label: document.label,
       mode: document.mode,
-      requestedLevel: Number(normalizedLevel),
+      requestedLevel: normalizedLevel,
       levels,
       risk: document.risk,
       confidence: document.confidence
     };
 
     if (query) {
-      response.search = this.search({ sessionId, query, mode: document.mode, limit: 5 }).results;
+      response.search = this.search({ sessionId: id, query, mode: document.mode, limit: 5 }).results;
     }
 
     return response;
@@ -265,11 +293,13 @@ export class ShapeLexEngine {
 
   explain({ sessionId = DEFAULT_SESSION_ID, uri }: any = {}) {
     assertString(uri, "uri");
-    const session = this.sessions.get(sessionId);
+    const id = normalizeSessionId(sessionId);
+    const session = this.sessions.get(id);
     if (!session) {
-      throw new Error(`Unknown ShapeLex session: ${sessionId}`);
+      throw new Error(`Unknown ShapeLex session: ${id}`);
     }
     const parsed = parseShapeLexUri(uri);
+    assertUriSession(parsed.sessionId, id, uri);
     const document = parsed.kind === "doc"
       ? session.documents.get(parsed.id)
       : session.documents.get(session.spanToDocument.get(parsed.id));
@@ -298,17 +328,19 @@ export class ShapeLexEngine {
 
   riskAssessment({ sessionId = DEFAULT_SESSION_ID, uri, text }: any = {}) {
     if (text !== undefined) {
-      assertString(text, "text");
+      assertBoundedString(text, "text", MAX_TEXT_CHARS);
       const analysis = analyzeRisk(text, { mode: "text", criticalExtracts: extractCriticalExtracts(text) });
       return analysis;
     }
 
     assertString(uri, "uri");
-    const session = this.sessions.get(sessionId);
+    const id = normalizeSessionId(sessionId);
+    const session = this.sessions.get(id);
     if (!session) {
-      throw new Error(`Unknown ShapeLex session: ${sessionId}`);
+      throw new Error(`Unknown ShapeLex session: ${id}`);
     }
     const parsed = parseShapeLexUri(uri);
+    assertUriSession(parsed.sessionId, id, uri);
     if (parsed.kind === "span") {
       const span = session.spans.get(parsed.id);
       if (!span) {
@@ -324,7 +356,8 @@ export class ShapeLexEngine {
   }
 
   listResources({ sessionId }: any = {}) {
-    const sessions = sessionId ? [this.sessions.get(sessionId)].filter(Boolean) : [...this.sessions.values()];
+    const id = sessionId === undefined ? undefined : normalizeSessionId(sessionId);
+    const sessions = id ? [this.sessions.get(id)].filter(Boolean) : [...this.sessions.values()];
     const resources = [];
 
     for (const session of sessions) {
@@ -379,7 +412,8 @@ export class ShapeLexEngine {
   }
 
   stats({ sessionId }: any = {}) {
-    const sessions = sessionId ? [this.sessions.get(sessionId)].filter(Boolean) : [...this.sessions.values()];
+    const id = sessionId === undefined ? undefined : normalizeSessionId(sessionId);
+    const sessions = id ? [this.sessions.get(id)].filter(Boolean) : [...this.sessions.values()];
     const sessionStats = sessions.map((session) => ({
       sessionId: session.id,
       createdAt: session.createdAt,
@@ -396,20 +430,126 @@ export class ShapeLexEngine {
       approxMemoryBytes: sessionStats.reduce((sum, item) => sum + item.approxMemoryBytes, 0),
       persistence: {
         enabled: this.persistent,
-        storePath: this.storePath
+        storePath: this.storePath,
+        maxStoreBytes: this.maxStoreBytes,
+        strategy: "single-json-file"
+      }
+    };
+  }
+
+  memoryOverview({ sessionId }: any = {}) {
+    const id = sessionId === undefined ? DEFAULT_SESSION_ID : normalizeSessionId(sessionId);
+    const sessions = [...this.sessions.values()]
+      .sort((a, b) => Date.parse(b.lastAccessedAt) - Date.parse(a.lastAccessedAt));
+    const current = this.sessions.get(id);
+    const sessionSummaries = sessions.map((session) => ({
+      sessionId: session.id,
+      isCurrent: session.id === id,
+      lastUsed: session.lastAccessedAt,
+      documents: session.documents.size,
+      handles: session.spans.size,
+      approxMemoryBytes: [...session.spans.values()].reduce((sum, span) => sum + Buffer.byteLength(span.text, "utf8"), 0),
+      labels: [...session.documents.values()].map((document) => document.label).slice(0, 6)
+    }));
+
+    const suggestions = [];
+    if (!current) {
+      suggestions.push(`No memory exists yet for session "${id}". If this is a new project, start by compressing long context with this sessionId.`);
+    }
+    if (sessionSummaries.length > 1) {
+      suggestions.push("Use a different sessionId for each project or task so old memory does not mix with new work.");
+    }
+    const staleSessions = sessions.filter((session) => daysSince(session.lastAccessedAt) >= 14);
+    if (staleSessions.length > 0) {
+      suggestions.push(`You have ${staleSessions.length} session(s) not used in 14+ days. Run shapelex_prune with {"olderThanDays":14,"dryRun":true} before deleting.`);
+    }
+    if (sessionSummaries.length > 10) {
+      suggestions.push("You have more than 10 sessions. Consider shapelex_prune with dryRun=true and maxSessions set to the number of active projects you care about.");
+    }
+    if (suggestions.length === 0) {
+      suggestions.push("Memory looks tidy. Keep using one clear sessionId per project.");
+    }
+
+    return {
+      currentSessionId: id,
+      plainEnglish: current
+        ? `You are using ShapeLex memory session "${id}". It has ${current.documents.size} document(s) and ${current.spans.size} expandable handle(s).`
+        : `You are using session name "${id}", but it does not have stored memory yet.`,
+      sessions: sessionSummaries,
+      suggestions,
+      cleanupExamples: {
+        previewOldSessions: { olderThanDays: 14, dryRun: true },
+        removeOldSessions: { olderThanDays: 14 },
+        keepNewestTen: { maxSessions: 10, dryRun: true }
       }
     };
   }
 
   clear({ sessionId }: any = {}) {
     if (sessionId) {
-      this.sessions.delete(sessionId);
+      this.sessions.delete(normalizeSessionId(sessionId));
     } else {
       this.sessions.clear();
     }
 
     this.#saveStore();
     return { cleared: true };
+  }
+
+  prune({ olderThanDays, maxSessions, dryRun = false }: any = {}) {
+    const cutoff = olderThanDays === undefined
+      ? undefined
+      : Date.now() - normalizeNonNegativeNumber(olderThanDays, "olderThanDays") * 24 * 60 * 60 * 1000;
+    const keepSessions = maxSessions === undefined
+      ? undefined
+      : normalizeLimit(maxSessions);
+
+    const ordered = [...this.sessions.values()]
+      .sort((a, b) => Date.parse(a.lastAccessedAt) - Date.parse(b.lastAccessedAt));
+    const toRemove = new Set<string>();
+
+    if (cutoff !== undefined) {
+      for (const session of ordered) {
+        if (Date.parse(session.lastAccessedAt) < cutoff) {
+          toRemove.add(session.id);
+        }
+      }
+    }
+
+    if (keepSessions !== undefined) {
+      const survivors = ordered.filter((session) => !toRemove.has(session.id));
+      const overflow = Math.max(0, survivors.length - keepSessions);
+      for (const session of survivors.slice(0, overflow)) {
+        toRemove.add(session.id);
+      }
+    }
+
+    const removedSessions = [...toRemove].sort();
+    const before = this.stats();
+
+    if (!dryRun) {
+      for (const sessionId of removedSessions) {
+        this.sessions.delete(sessionId);
+      }
+      this.#saveStore();
+    }
+
+    const after = dryRun ? before : this.stats();
+    return {
+      dryRun: Boolean(dryRun),
+      removedSessions,
+      removedCount: removedSessions.length,
+      before: {
+        activeDocuments: before.activeDocuments,
+        activeHandles: before.activeHandles,
+        approxMemoryBytes: before.approxMemoryBytes
+      },
+      after: {
+        activeDocuments: after.activeDocuments,
+        activeHandles: after.activeHandles,
+        approxMemoryBytes: after.approxMemoryBytes
+      }
+    };
   }
 
   flush() {
@@ -421,7 +561,7 @@ export class ShapeLexEngine {
   }
 
   #session(sessionId) {
-    const id = String(sessionId || DEFAULT_SESSION_ID);
+    const id = normalizeSessionId(sessionId);
     let session = this.sessions.get(id);
 
     if (!session) {
@@ -533,6 +673,11 @@ export class ShapeLexEngine {
       return;
     }
 
+    const stat = fs.statSync(this.storePath);
+    if (stat.size > this.maxStoreBytes) {
+      throw new Error(`ShapeLex store exceeds maximum supported size: ${this.storePath}`);
+    }
+
     const raw = fs.readFileSync(this.storePath, "utf8");
     const store = JSON.parse(raw);
     if (store.version !== STORE_VERSION || !Array.isArray(store.sessions)) {
@@ -540,8 +685,9 @@ export class ShapeLexEngine {
     }
 
     for (const item of store.sessions) {
+      const id = normalizeSessionId(item.id);
       const session = {
-        id: item.id,
+        id,
         createdAt: item.createdAt,
         lastAccessedAt: item.lastAccessedAt,
         nextSpan: item.nextSpan,
@@ -746,6 +892,27 @@ function resultPayload(sessionId: any, compressedText: any, handles: any, rawTex
     savingsRatio: rawTokenEstimate === 0
       ? 0
       : Number((1 - compressedTokenEstimate / rawTokenEstimate).toFixed(4))
+  };
+}
+
+function applyCompressionPolicy(payload: any, rawText: any) {
+  if (payload.rawTokenEstimate === 0) {
+    return payload;
+  }
+
+  const minimumUsefulTokens = Math.floor(payload.rawTokenEstimate * (1 - MIN_TOKEN_SAVINGS_RATIO));
+  if (payload.compressedTokenEstimate <= minimumUsefulTokens) {
+    payload.compressionSkipped = false;
+    return payload;
+  }
+
+  return {
+    ...payload,
+    compressedText: String(rawText ?? "").trim(),
+    compressedTokenEstimate: payload.rawTokenEstimate,
+    savingsRatio: 0,
+    compressionSkipped: true,
+    skipReason: `Compression did not meet the ${Math.round(MIN_TOKEN_SAVINGS_RATIO * 100)}% minimum token savings threshold. Exact text was returned so model quality is preserved.`
   };
 }
 
@@ -1062,17 +1229,17 @@ function scoreDocument(document: any, queryTokens: any[]) {
 
 function parseShapeLexUri(uri) {
   const value = String(uri);
-  let match = value.match(/^sx:\/\/[^/]+\/span\/(span_\d+)$/);
-  if (match) return { kind: "span", id: match[1] };
-  match = value.match(/^sx:\/\/[^/]+\/(span_\d+)$/);
-  if (match) return { kind: "span", id: match[1] };
-  match = value.match(/^sx:\/\/[^/]+\/doc\/(doc_\d+)$/);
-  if (match) return { kind: "doc", id: match[1] };
+  let match = value.match(/^sx:\/\/([A-Za-z0-9._-]{1,80})\/span\/(span_\d+)$/);
+  if (match) return { kind: "span", sessionId: match[1], id: match[2] };
+  match = value.match(/^sx:\/\/([A-Za-z0-9._-]{1,80})\/(span_\d+)$/);
+  if (match) return { kind: "span", sessionId: match[1], id: match[2] };
+  match = value.match(/^sx:\/\/([A-Za-z0-9._-]{1,80})\/doc\/(doc_\d+)$/);
+  if (match) return { kind: "doc", sessionId: match[1], id: match[2] };
   throw new Error(`Invalid ShapeLex URI: ${uri}`);
 }
 
 function parseResourceUri(uri) {
-  const match = String(uri).match(/^sx:\/\/([^/]+)\/doc\/(doc_\d+)(?:\/level\/([0-4]))?$/);
+  const match = String(uri).match(/^sx:\/\/([A-Za-z0-9._-]{1,80})\/doc\/(doc_\d+)(?:\/level\/([0-4]))?$/);
   if (!match) {
     throw new Error(`Invalid ShapeLex resource URI: ${uri}`);
   }
@@ -1275,5 +1442,98 @@ function clampText(text, maxLength) {
 function assertString(value, name) {
   if (typeof value !== "string") {
     throw new TypeError(`${name} must be a string`);
+  }
+}
+
+function assertBoundedString(value, name, maxLength) {
+  assertString(value, name);
+  if (value.length > maxLength) {
+    throw new RangeError(`${name} must be ${maxLength} characters or fewer`);
+  }
+}
+
+function assertMessage(message, index) {
+  if (!message || typeof message !== "object") {
+    throw new TypeError(`messages[${index}] must be an object`);
+  }
+  assertBoundedString(message.role, `messages[${index}].role`, 40);
+  assertBoundedString(message.content, `messages[${index}].content`, MAX_TEXT_CHARS);
+}
+
+function normalizeSessionId(sessionId) {
+  const id = String(sessionId || DEFAULT_SESSION_ID);
+  if (!SESSION_ID_PATTERN.test(id)) {
+    throw new TypeError("sessionId must be 1-80 characters using only letters, numbers, dot, underscore, or hyphen");
+  }
+  return id;
+}
+
+function normalizeTextMode(mode) {
+  const value = String(mode ?? "text");
+  if (!TEXT_MODES.has(value)) {
+    throw new TypeError("mode must be one of: text, doc, message, code");
+  }
+  return value === "doc" || value === "message" ? "text" : value;
+}
+
+function normalizeLabel(label) {
+  if (label === undefined || label === null || label === "") {
+    return "text";
+  }
+  assertBoundedString(label, "label", MAX_LABEL_CHARS);
+  return label;
+}
+
+function normalizeSearchMode(mode) {
+  const value = String(mode);
+  if (!["text", "code", "conversation"].includes(value)) {
+    throw new TypeError("mode must be one of: text, code, conversation");
+  }
+  return value;
+}
+
+function normalizeLevel(level) {
+  const value = Number(level);
+  if (!Number.isInteger(value) || value < 0 || value > 4) {
+    throw new TypeError("level must be an integer from 0 through 4");
+  }
+  return value;
+}
+
+function normalizeLimit(limit) {
+  const value = Number(limit);
+  if (!Number.isInteger(value) || value < 1) {
+    throw new TypeError("limit must be a positive integer");
+  }
+  return Math.min(value, 50);
+}
+
+function normalizeNonNegativeNumber(value, name) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) {
+    throw new TypeError(`${name} must be a non-negative number`);
+  }
+  return number;
+}
+
+function daysSince(isoDate) {
+  const timestamp = Date.parse(isoDate);
+  if (!Number.isFinite(timestamp)) {
+    return 0;
+  }
+  return (Date.now() - timestamp) / (24 * 60 * 60 * 1000);
+}
+
+function normalizeMaxStoreBytes(value) {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes < 1024 * 1024) {
+    throw new TypeError("maxStoreBytes must be at least 1 MiB");
+  }
+  return Math.floor(bytes);
+}
+
+function assertUriSession(uriSessionId, requestedSessionId, uri) {
+  if (uriSessionId !== requestedSessionId) {
+    throw new Error(`ShapeLex URI session mismatch: ${uri}`);
   }
 }

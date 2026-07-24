@@ -1,0 +1,4 @@
+interface:
+  display_name: "ShapeLex Memory"
+  short_description: "Token-aware MCP memory workflow"
+  default_prompt: "Use $shapelex-memory to show the active memory session, compress long context safely, expand exact handles before relying on details, and keep chat output terse."
