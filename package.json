@@ -34,11 +34,12 @@
     "doctor": "npm run build && node ./bin/shapelex-mcp.js --doctor",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "npm run build && node ./dist/src/release-lint.js",
-    "check": "npm run doctor && npm run typecheck && npm run lint && npm test && npm run smoke && npm run e2e && npm run benchmark",
+    "check": "npm run doctor && npm run typecheck && npm run lint && npm test && npm run smoke && npm run e2e && npm run agent-eval && npm run benchmark",
     "test": "npm run build && node ./dist/src/run-tests.js",
     "benchmark": "npm run build && node ./dist/src/shapelex-benchmark.js",
     "smoke": "npm run build && node ./dist/src/shapelex-smoke-eval.js",
     "e2e": "npm run build && node ./dist/src/shapelex-e2e-eval.js",
+    "agent-eval": "npm run build && node ./dist/src/shapelex-agent-adoption-eval.js",
     "prepack": "npm run build"
   },
   "keywords": [
