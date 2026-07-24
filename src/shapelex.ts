@@ -291,6 +291,50 @@ export class ShapeLexEngine {
     return response;
   }
 
+  context({ sessionId = DEFAULT_SESSION_ID, query, mode, limit = 3, detail = "standard" }: any = {}) {
+    const id = normalizeSessionId(sessionId);
+    assertBoundedString(query, "query", MAX_QUERY_CHARS);
+    const normalizedMode = mode === undefined ? undefined : normalizeSearchMode(mode);
+    const normalizedLimit = normalizeLimit(limit);
+    const normalizedDetail = normalizeContextDetail(detail);
+    const session = this.sessions.get(id);
+    if (!session) {
+      throw new Error(`Unknown ShapeLex session: ${id}`);
+    }
+
+    const matches = this.search({
+      sessionId: id,
+      query,
+      mode: normalizedMode,
+      limit: normalizedLimit
+    }).results;
+    const documents = matches
+      .map((match) => session.documents.get(match.documentId))
+      .filter(Boolean)
+      .map((document) => compactDocumentContext(document, {
+        query,
+        detail: normalizedDetail
+      }));
+    const contextText = renderContextText({
+      sessionId: id,
+      query,
+      documents,
+      detail: normalizedDetail
+    });
+
+    return {
+      sessionId: id,
+      query,
+      detail: normalizedDetail,
+      results: documents,
+      contextText,
+      tokenEstimate: estimateTokens(contextText),
+      guidance: documents.some((document) => document.risk.mustExpand || document.risk.shouldExpand)
+        ? "Use this compact context for orientation. Expand listed handles before relying on exact code, numbers, commands, or user intent."
+        : "Compact context is enough for orientation. Expand handles before quoting exact wording."
+    };
+  }
+
   explain({ sessionId = DEFAULT_SESSION_ID, uri }: any = {}) {
     assertString(uri, "uri");
     const id = normalizeSessionId(sessionId);
@@ -877,6 +921,68 @@ function renderNavigableDocument(document: any) {
 
 function renderLevelSummary(document: any) {
   return `ShapeLex document ${document.uri}\nLevel 0: ${document.levels[0].summary}\nRisk: ${document.risk.level} (${document.risk.score}) mustExpand=${document.risk.mustExpand}`;
+}
+
+function compactDocumentContext(document: any, { query, detail }: any) {
+  const queryTokens = tokenize(query).map((token) => token.toLowerCase());
+  const criticalExtracts = document.levels[3].criticalExtracts.slice(0, detail === "brief" ? 6 : 12);
+  const symbols = (document.code?.symbols ?? [])
+    .filter((symbol) => queryTokens.some((token) => symbol.name.toLowerCase().includes(token)))
+    .slice(0, 8);
+  const references = (document.code?.references ?? [])
+    .filter((reference) => queryTokens.some((token) => reference.name.toLowerCase().includes(token)))
+    .slice(0, 8);
+
+  return {
+    uri: document.uri,
+    label: document.label,
+    mode: document.mode,
+    summary: document.levels[0].summary,
+    anchors: document.levels[2].anchors.slice(0, detail === "brief" ? 8 : 14),
+    protectedTerms: document.levels[2].protectedTerms.slice(0, 12),
+    criticalExtracts,
+    symbols,
+    references,
+    handles: document.levels[4].handles.slice(0, detail === "brief" ? 3 : 8),
+    risk: document.risk
+  };
+}
+
+function renderContextText({ sessionId, query, documents, detail }: any) {
+  const lines = [
+    `ShapeLex compact context session=${sessionId} detail=${detail}`,
+    `Query: ${query}`
+  ];
+
+  if (documents.length === 0) {
+    lines.push("No matching memory found. Ask the user for context or compress relevant material into this session.");
+    return lines.join("\n");
+  }
+
+  documents.forEach((document, index) => {
+    lines.push("");
+    lines.push(`#${index + 1} ${document.label} ${document.uri} mode=${document.mode} risk=${document.risk.level}`);
+    lines.push(`Summary: ${document.summary}`);
+    lines.push(`Anchors: ${document.anchors.join(", ") || "none"}`);
+    if (document.protectedTerms.length > 0) {
+      lines.push(`Protected terms: ${document.protectedTerms.join(", ")}`);
+    }
+    if (document.symbols.length > 0) {
+      lines.push(`Code symbols: ${document.symbols.map((symbol) => symbol.signature).join(" | ")}`);
+    }
+    if (document.references.length > 0) {
+      lines.push(`References: ${document.references.map((reference) => `${reference.name}@${reference.line}`).join(", ")}`);
+    }
+    if (document.criticalExtracts.length > 0) {
+      lines.push("Critical extracts:");
+      for (const extract of document.criticalExtracts) {
+        lines.push(`- ${extract.text}`);
+      }
+    }
+    lines.push(`Expand if exactness matters: ${document.handles.map((handle) => handle.uri).join(", ") || document.uri}`);
+  });
+
+  return lines.join("\n");
 }
 
 function resultPayload(sessionId: any, compressedText: any, handles: any, rawText: any): any {
@@ -1496,6 +1602,14 @@ function normalizeLevel(level) {
   const value = Number(level);
   if (!Number.isInteger(value) || value < 0 || value > 4) {
     throw new TypeError("level must be an integer from 0 through 4");
+  }
+  return value;
+}
+
+function normalizeContextDetail(detail) {
+  const value = String(detail ?? "standard");
+  if (!["brief", "standard"].includes(value)) {
+    throw new TypeError("detail must be one of: brief, standard");
   }
   return value;
 }

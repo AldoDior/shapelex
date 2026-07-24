@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { ShapeLexEngine, charShape, fingerprintTokens } from "../src/shapelex.js";
-import { handleJsonRpc } from "../src/mcp-server.js";
+import { createJsonRpcHandler, handleJsonRpc } from "../src/mcp-server.js";
 
 test("charShape is stable for identifiers and mixed case", () => {
   const shape = charShape("validateChargebackTransaction");
@@ -170,6 +170,23 @@ test("MCP tools/list and tools/call expose compression", async () => {
   assert.ok(call.result.structuredContent.handles.length > 0);
 });
 
+test("MCP lean toolset exposes only the core low-overhead tools", async () => {
+  const engine = new ShapeLexEngine();
+  const handleLeanJsonRpc = createJsonRpcHandler(engine, { toolset: "lean" });
+  const list = await handleLeanJsonRpc({ jsonrpc: "2.0", id: 31, method: "tools/list" });
+  const names = list.result.tools.map((tool) => tool.name);
+
+  assert.deepEqual(names, [
+    "shapelex_compress_messages",
+    "shapelex_compress_text",
+    "shapelex_expand",
+    "shapelex_context",
+    "shapelex_memory_overview",
+    "shapelex_clear",
+    "shapelex_prune"
+  ]);
+});
+
 test("MCP memory overview explains sessions", async () => {
   await handleJsonRpc({
     jsonrpc: "2.0",
@@ -230,6 +247,34 @@ test("search and retrieve navigate compressed memory", () => {
 
   const retrieved = engine.retrieve({ sessionId: "search", uri: compressed.uri, level: 3 });
   assert.ok(retrieved.levels[3].criticalExtracts.some((item) => item.text.includes("OPS-123")));
+});
+
+test("context returns compact task-ready memory in one call", () => {
+  const engine = new ShapeLexEngine();
+  engine.compressText({
+    sessionId: "context",
+    mode: "code",
+    label: "checkout.ts",
+    text: [
+      "File: src/checkout.ts",
+      "Existing public function name must be validateCheckout.",
+      "Requirement: Do not approve invoices over 5000 without manager approval.",
+      "Requirement: Preserve retryCount when validation fails.",
+      "Requirement: Return error code MANAGER_APPROVAL_REQUIRED.",
+      "Constraint: Keep existing idempotencyKey behavior."
+    ].join("\n")
+  });
+
+  const context = engine.context({
+    sessionId: "context",
+    query: "validateCheckout manager approval retryCount idempotencyKey",
+    mode: "code"
+  });
+
+  assert.match(context.contextText, /validateCheckout/);
+  assert.match(context.contextText, /MANAGER_APPROVAL_REQUIRED/);
+  assert.match(context.contextText, /Expand if exactness matters/);
+  assert.ok(context.tokenEstimate > 0);
 });
 
 test("code mode extracts imports symbols references and errors", () => {

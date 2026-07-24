@@ -4,6 +4,8 @@ node_modules/
 # Logs
 logs/
 *.log
+codex-live-*.txt
+codex-shapelex-smoke-output.txt
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -39,6 +41,7 @@ temp/
 *.sqlite3
 *.db
 .shapelex/
+.shapelex-codex/
 
 # Local/private research notes
 research/local/

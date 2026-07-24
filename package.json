@@ -23,6 +23,8 @@
     "start": "npm run build && node ./bin/shapelex-mcp.js",
     "test": "npm run build && node --test \"dist/test/*.test.js\"",
     "benchmark": "npm run build && node ./dist/src/shapelex-benchmark.js",
+    "smoke": "npm run build && node ./dist/src/shapelex-smoke-eval.js",
+    "e2e": "npm run build && node ./dist/src/shapelex-e2e-eval.js",
     "prepack": "npm run build"
   },
   "keywords": [

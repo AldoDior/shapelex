@@ -8,6 +8,17 @@ const engine = new ShapeLexEngine({
   maxStoreBytes: maxStoreBytesFromEnv(process.env.SHAPELEX_MAX_STORE_MB)
 });
 
+const defaultToolset = normalizeToolset(process.env.SHAPELEX_TOOLSET);
+const leanToolNames = new Set([
+  "shapelex_compress_text",
+  "shapelex_compress_messages",
+  "shapelex_context",
+  "shapelex_expand",
+  "shapelex_memory_overview",
+  "shapelex_clear",
+  "shapelex_prune"
+]);
+
 const tools = [
   {
     name: "shapelex_compress",
@@ -111,6 +122,23 @@ const tools = [
     }
   },
   {
+    name: "shapelex_context",
+    title: "Get compact ShapeLex context",
+    description: "Search ShapeLex memory and return compact task-ready context in one call.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sessionId: { type: "string" },
+        query: { type: "string" },
+        mode: { type: "string", enum: ["text", "code", "conversation"] },
+        limit: { type: "number" },
+        detail: { type: "string", enum: ["brief", "standard"] }
+      },
+      required: ["query"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "shapelex_retrieve",
     title: "Retrieve ShapeLex levels",
     description: "Retrieve navigable ShapeLex levels for a document or expand a span URI.",
@@ -208,6 +236,7 @@ const tools = [
 
 export function startMcpServer({ input = process.stdin, output = process.stdout }: any = {}) {
   const rl = readline.createInterface({ input });
+  const handle = createJsonRpcHandler(engine, { toolset: defaultToolset });
 
   rl.on("line", async (line) => {
     if (!line.trim()) {
@@ -217,7 +246,7 @@ export function startMcpServer({ input = process.stdin, output = process.stdout 
     let request;
     try {
       request = JSON.parse(line);
-      const response = await handleJsonRpc(request);
+      const response = await handle(request);
       if (response) {
         output.write(`${JSON.stringify(response)}\n`);
       }
@@ -228,28 +257,34 @@ export function startMcpServer({ input = process.stdin, output = process.stdout 
   });
 }
 
-export async function handleJsonRpc(request: any): Promise<any> {
-  if (request.jsonrpc !== "2.0") {
-    return errorResponse(request.id ?? null, new Error("Expected JSON-RPC 2.0 request"));
-  }
+export const handleJsonRpc = createJsonRpcHandler(engine);
 
-  if (request.method?.startsWith("notifications/")) {
-    return undefined;
-  }
+export function createJsonRpcHandler(targetEngine: ShapeLexEngine, { toolset = "full" }: any = {}) {
+  const activeTools = toolsForToolset(normalizeToolset(toolset));
 
-  try {
-    const result = await dispatch(request.method, request.params ?? {});
-    return {
-      jsonrpc: "2.0",
-      id: request.id,
-      result
-    };
-  } catch (error) {
-    return errorResponse(request.id, error);
-  }
+  return async function handle(request: any): Promise<any> {
+    if (request.jsonrpc !== "2.0") {
+      return errorResponse(request.id ?? null, new Error("Expected JSON-RPC 2.0 request"));
+    }
+
+    if (request.method?.startsWith("notifications/")) {
+      return undefined;
+    }
+
+    try {
+      const result = await dispatch(targetEngine, activeTools, request.method, request.params ?? {});
+      return {
+        jsonrpc: "2.0",
+        id: request.id,
+        result
+      };
+    } catch (error) {
+      return errorResponse(request.id, error);
+    }
+  };
 }
 
-async function dispatch(method: any, params: any): Promise<any> {
+async function dispatch(targetEngine: ShapeLexEngine, activeTools: any[], method: any, params: any): Promise<any> {
   switch (method) {
     case "initialize":
       return {
@@ -269,19 +304,19 @@ async function dispatch(method: any, params: any): Promise<any> {
     case "ping":
       return {};
     case "tools/list":
-      return { tools };
+      return { tools: activeTools };
     case "tools/call":
-      return callTool(params);
+      return callTool(targetEngine, params);
     case "resources/list":
-      return engine.listResources(params);
+      return targetEngine.listResources(params);
     case "resources/read":
-      return engine.readResource(params);
+      return targetEngine.readResource(params);
     default:
       throw new Error(`Unsupported method: ${method}`);
   }
 }
 
-function callTool(params: any): any {
+function callTool(targetEngine: ShapeLexEngine, params: any): any {
   if (!params || typeof params !== "object") {
     throw new TypeError("tools/call params must be an object");
   }
@@ -296,40 +331,43 @@ function callTool(params: any): any {
 
   switch (name) {
     case "shapelex_compress":
-      result = engine.compress(args);
+      result = targetEngine.compress(args);
       break;
     case "shapelex_compress_messages":
-      result = engine.compressMessages(args);
+      result = targetEngine.compressMessages(args);
       break;
     case "shapelex_compress_text":
-      result = engine.compressText(args);
+      result = targetEngine.compressText(args);
       break;
     case "shapelex_expand":
-      result = engine.expand(args);
+      result = targetEngine.expand(args);
       break;
     case "shapelex_search":
-      result = engine.search(args);
+      result = targetEngine.search(args);
+      break;
+    case "shapelex_context":
+      result = targetEngine.context(args);
       break;
     case "shapelex_retrieve":
-      result = engine.retrieve(args);
+      result = targetEngine.retrieve(args);
       break;
     case "shapelex_explain":
-      result = engine.explain(args);
+      result = targetEngine.explain(args);
       break;
     case "shapelex_risk_assessment":
-      result = engine.riskAssessment(args);
+      result = targetEngine.riskAssessment(args);
       break;
     case "shapelex_stats":
-      result = engine.stats(args);
+      result = targetEngine.stats(args);
       break;
     case "shapelex_memory_overview":
-      result = engine.memoryOverview(args);
+      result = targetEngine.memoryOverview(args);
       break;
     case "shapelex_clear":
-      result = engine.clear(args);
+      result = targetEngine.clear(args);
       break;
     case "shapelex_prune":
-      result = engine.prune(args);
+      result = targetEngine.prune(args);
       break;
     default:
       throw new Error(`Unknown tool: ${name}`);
@@ -366,4 +404,19 @@ function maxStoreBytesFromEnv(value: string | undefined) {
     throw new TypeError("SHAPELEX_MAX_STORE_MB must be a number greater than or equal to 1");
   }
   return Math.floor(megabytes * 1024 * 1024);
+}
+
+function normalizeToolset(value: any) {
+  const toolset = String(value ?? "full").trim().toLowerCase();
+  if (!["full", "lean"].includes(toolset)) {
+    throw new TypeError("SHAPELEX_TOOLSET must be either full or lean");
+  }
+  return toolset;
+}
+
+function toolsForToolset(toolset: string) {
+  if (toolset === "lean") {
+    return tools.filter((tool) => leanToolNames.has(tool.name));
+  }
+  return tools;
 }

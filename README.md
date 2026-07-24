@@ -10,6 +10,8 @@ ShapeLex optimizes for model quality before token savings. If a compressed wrapp
 
 ShapeLex mainly saves input tokens: old context can become compact handles instead of being pasted back into every prompt. Output tokens are controlled by agent instructions, so the bundled skill tells agents to keep chat output terse and spend tokens on code, tests, and exact next steps.
 
+For Codex, set `SHAPELEX_TOOLSET=lean` so the MCP server exposes only the small normal workflow and keeps tool-schema overhead lower.
+
 ShapeLex is not designed to reconstruct full text from a lossy compressed prompt. It gives agents a hierarchy:
 
 - Level 0: ultra summary.
@@ -25,6 +27,8 @@ Install and verify:
 ```bash
 npm install
 npm test
+npm run smoke
+npm run e2e
 npm run benchmark
 ```
 
@@ -75,6 +79,7 @@ See [docs/USAGE.md](docs/USAGE.md) for Codex and Claude Code setup examples.
 - `shapelex_compress_text`: compress pasted text, docs, or code-like snippets.
 - `shapelex_expand`: expand one `sx://` handle back to exact original text.
 - `shapelex_search`: search compressed memory without expanding full text.
+- `shapelex_context`: get compact task-ready memory in one call.
 - `shapelex_retrieve`: retrieve hierarchy levels for a ShapeLex document.
 - `shapelex_explain`: explain how to use a ShapeLex URI.
 - `shapelex_risk_assessment`: inspect semantic-loss and expansion risk.

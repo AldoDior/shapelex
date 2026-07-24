@@ -39,6 +39,15 @@ $env:SHAPELEX_MAX_STORE_MB="250"
 npm start
 ```
 
+For Codex, use the lean MCP tool set to reduce tool-schema overhead:
+
+```powershell
+$env:SHAPELEX_TOOLSET="lean"
+npm start
+```
+
+Lean mode exposes the normal low-overhead workflow: compress, get compact context, expand exact handles, inspect memory, and clean sessions. Use `SHAPELEX_TOOLSET="full"` when you want lower-level search, retrieve, risk, and debug tools.
+
 ## Claude Code
 
 For local source usage after `npm run build`:
@@ -57,13 +66,38 @@ Use `claude mcp list` and `/mcp` in Claude Code to verify that the server is con
 
 ## Codex
 
-ShapeLex is designed as a local stdio MCP server. Configure Codex to launch:
+ShapeLex is designed as a local stdio MCP server. This repo includes a project-local Codex config:
 
 ```text
-node /absolute/path/to/ShapeLex/bin/shapelex-mcp.js
+.codex/config.toml
 ```
 
-Use the bundled `skills/shapelex-memory` skill instructions alongside the MCP server so the agent knows when to compress, search, retrieve, and expand.
+Before testing in Codex:
+
+```powershell
+npm install
+npm run build
+```
+
+Then open a new Codex task in this trusted repo. Ask:
+
+```text
+Use ShapeLex memory overview. What memory session am I using?
+```
+
+The MCP server should start from:
+
+```text
+node ./bin/shapelex-mcp.js
+```
+
+with local memory stored in:
+
+```text
+.shapelex-codex/
+```
+
+Use the bundled `skills/shapelex-memory` skill instructions alongside the MCP server so the agent knows when to compress, search, retrieve, expand, and keep chat output terse.
 
 ## Cursor
 
@@ -78,7 +112,8 @@ After ShapeLex is published to npm, use:
       "command": "npx",
       "args": ["-y", "shapelex-mcp"],
       "env": {
-        "SHAPELEX_STORE_DIR": ".shapelex"
+        "SHAPELEX_STORE_DIR": ".shapelex",
+        "SHAPELEX_TOOLSET": "lean"
       }
     }
   }
@@ -94,7 +129,8 @@ For local source usage after `npm run build`, use:
       "command": "node",
       "args": ["C:\\path\\to\\ShapeLex\\bin\\shapelex-mcp.js"],
       "env": {
-        "SHAPELEX_STORE_DIR": ".shapelex"
+        "SHAPELEX_STORE_DIR": ".shapelex",
+        "SHAPELEX_TOOLSET": "lean"
       }
     }
   }
@@ -109,9 +145,50 @@ In Cursor chat, ask: "Use ShapeLex memory overview. What memory session am I usi
 2. Use `shapelex_compress_messages` for older conversation history.
 3. Use `shapelex_memory_overview` to see which session is active and whether cleanup is recommended.
 4. If the result has `compressionSkipped: true`, use the returned exact text. ShapeLex decided compression would not save enough tokens.
-5. Use `shapelex_search` to find relevant stored context.
-6. Use `shapelex_retrieve` for document levels.
+5. Use `shapelex_context` first to get compact task-ready context in one call.
+6. Use `shapelex_search` and `shapelex_retrieve` only when you need deeper navigation.
 7. Use `shapelex_expand` before relying on exact wording, numbers, dates, code, commands, negations, or user intent.
+
+## Smoke Test
+
+Run the raw-context versus ShapeLex-context smoke test:
+
+```powershell
+npm run smoke
+```
+
+The report compares:
+
+- raw prompt token estimate
+- ShapeLex prompt token estimate
+- covered coding facts
+- deterministic coding decision
+- whether the ShapeLex version preserved the same result with fewer prompt tokens
+
+This is not a full AI quality benchmark. It is a repeatable mechanical check that the MCP workflow can reduce input context while keeping the facts needed for a coding task.
+
+## End-To-End Eval
+
+Run the simulated end-to-end coding workflow eval:
+
+```powershell
+npm run e2e
+```
+
+The eval runs multiple coding scenarios twice:
+
+- raw context, as if no ShapeLex tool existed
+- ShapeLex context, as if the agent compressed old context, retrieved critical extracts, then generated code
+
+It compares:
+
+- total raw prompt tokens
+- total ShapeLex prompt tokens
+- generated-code quality checks
+- fact retention
+- per-scenario token savings
+
+This does not call a live AI model. It is a deterministic workflow simulation, useful for regression testing ShapeLex behavior. A true live-model benchmark should run real Codex/Cursor/Claude tasks twice and compare final diffs, tests, and transcript token usage.
 
 ## Sessions In Plain English
 
