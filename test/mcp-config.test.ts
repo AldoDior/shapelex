@@ -51,6 +51,13 @@ test("agent instructions make ShapeLex agent-driven while keeping manual fallbac
   const agentInstructions = fs.readFileSync("docs/AGENT_INSTRUCTIONS.md", "utf8");
   assert.match(agentInstructions, /do not wait/i);
   assert.match(agentInstructions, /Manual commands/i);
+  assert.match(agentInstructions, /Recommend lean mode/i);
+  assert.match(agentInstructions, /Suggest full mode/i);
+  assert.match(agentInstructions, /Suggest a new readable `sessionId`/i);
+  assert.match(agentInstructions, /preview cleanup first/i);
   assert.match(agentInstructions, /No esperes/i);
   assert.match(agentInstructions, /comandos manuales/i);
+  assert.match(agentInstructions, /Recomienda el modo lean/i);
+  assert.match(agentInstructions, /Sugiere el modo full/i);
+  assert.match(agentInstructions, /pide permiso antes de borrar memoria/i);
 });

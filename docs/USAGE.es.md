@@ -79,6 +79,14 @@ Usa `SHAPELEX_TOOLSET=full` solo si quieres la herramienta compacta `shapelex_in
 
 `SHAPELEX_STORE_DIR=.shapelex` indica donde se guarda la memoria local.
 
+El comportamiento del agente debe ser simple:
+
+- Mantener lean para trabajo normal de código y memoria de sesiones largas.
+- Sugerir full solo cuando lean no alcance para una búsqueda, recuperación, explicación, riesgo o estadística más profunda.
+- Sugerir una sesión nueva cuando cambie el proyecto, repo, cliente, feature o tarea.
+- Sugerir limpieza cuando la memoria esté vieja, ruidosa, mezclada o confusa.
+- Mostrar una vista previa antes de limpiar; no borrar memoria sin confirmación.
+
 ## Codex
 
 Usa esta sección si quieres ShapeLex en Codex.
@@ -210,6 +218,18 @@ Voy a comprimir contexto anterior con ShapeLex para mantener esta sesión más l
 ```
 
 Cuando un detalle sea importante, el agente debe expandir el texto exacto antes de cambiar código, ejecutar comandos, borrar memoria o depender de números, fechas, negaciones, errores o instrucciones.
+
+El agente también debe sugerir cuándo cambiar de sesión o limpiar memoria. Por ejemplo:
+
+```text
+Esto parece otro proyecto. Voy a usar una nueva sesión de ShapeLex para no mezclar memoria.
+```
+
+Y antes de borrar memoria:
+
+```text
+Esta memoria parece vieja o ruidosa. Voy a mostrar una vista previa de limpieza antes de borrar algo.
+```
 
 ## Sesiones
 

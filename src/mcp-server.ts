@@ -14,6 +14,9 @@ const serverInstructions = [
   "Use ShapeLex proactively for long pasted context, repeated project notes, older conversation history, large docs, logs, or code snippets; do not wait for the user to say \"use ShapeLex\".",
   "Briefly tell the user the first time you compress context in a session, and when switching or cleaning memory.",
   "Use shapelex_context before loading old memory into the prompt.",
+  "Recommend lean mode for normal work; suggest full mode only when the user needs deeper search, retrieve, explain, risk, or stats actions.",
+  "Suggest a new readable sessionId when the project, repo, client, or task changes so unrelated memory does not mix.",
+  "Suggest cleanup when memory is old, noisy, unrelated, or confusing; preview with shapelex_prune dryRun before deleting and ask before destructive cleanup.",
   "Expand sx:// handles before relying on exact wording, numbers, dates, negations, user instructions, code, errors, commands, or decisions.",
   "If risk.shouldExpand or risk.mustExpand is true for a needed detail, expand before acting.",
   "Keep chat output terse so saved input tokens are not wasted on unnecessary explanation."
@@ -31,7 +34,7 @@ const leanToolNames = new Set([
 const tools = [
   {
     name: "shapelex_compress_messages",
-    description: "Agent-driven: compress older chat messages into sx:// handles when conversation history gets long or repeated.",
+    description: "Agent-driven: compress older/repeated chat into sx:// handles.",
     inputSchema: {
       type: "object",
       properties: {
@@ -56,7 +59,7 @@ const tools = [
   },
   {
     name: "shapelex_compress_text",
-    description: "Agent-driven: compress long text, code, docs, logs, or project notes into sx:// handles.",
+    description: "Agent-driven: compress long text/code/docs/logs into sx:// handles.",
     inputSchema: {
       type: "object",
       properties: {
@@ -72,7 +75,7 @@ const tools = [
   },
   {
     name: "shapelex_expand",
-    description: "Expand an sx:// handle to exact text before relying on details that require precision.",
+    description: "Expand sx:// to exact text for precision.",
     inputSchema: {
       type: "object",
       properties: {
@@ -85,7 +88,7 @@ const tools = [
   },
   {
     name: "shapelex_context",
-    description: "Agent-driven: return compact task-ready memory before reloading old context into the prompt.",
+    description: "Agent-driven: return compact task-ready memory.",
     inputSchema: {
       type: "object",
       properties: {
@@ -101,7 +104,7 @@ const tools = [
   },
   {
     name: "shapelex_inspect",
-    description: "Full mode only: search/retrieve/explain/risk/stats.",
+    description: "Full only: deeper search/retrieve/explain/risk/stats.",
     inputSchema: {
       type: "object",
       properties: {
@@ -120,7 +123,7 @@ const tools = [
   },
   {
     name: "shapelex_memory_overview",
-    description: "Show active sessions and cleanup suggestions when starting, switching, or cleaning project memory.",
+    description: "Show sessions and cleanup suggestions.",
     inputSchema: {
       type: "object",
       properties: {
@@ -131,7 +134,7 @@ const tools = [
   },
   {
     name: "shapelex_clear",
-    description: "Clear one session or all memory.",
+    description: "Clear one session or all memory after approval.",
     inputSchema: {
       type: "object",
       properties: {
@@ -142,7 +145,7 @@ const tools = [
   },
   {
     name: "shapelex_prune",
-    description: "Preview/remove old sessions.",
+    description: "Preview/remove old sessions; use dryRun first.",
     inputSchema: {
       type: "object",
       properties: {

@@ -119,6 +119,14 @@ Lean mode exposes the normal low-overhead workflow: compress, get compact contex
 
 The live Codex benchmark showed why this matters: exposing too many MCP tools can cost more tokens than raw context. ShapeLex defaults to lean, and full mode keeps the extra surface consolidated into one compact inspect tool.
 
+Agent behavior should be simple:
+
+- Stay on lean for normal coding and long-session memory.
+- Suggest full mode only when lean mode cannot answer a deeper search, retrieve, explain, risk, or stats question.
+- Suggest a new session when the project, repo, client, feature, or task changes.
+- Suggest cleanup when memory is old, noisy, unrelated, or confusing.
+- Preview cleanup first; do not delete memory without confirmation.
+
 ## Claude Code
 
 Use this section if you want ShapeLex in Claude Code.
@@ -295,10 +303,12 @@ This is the agent's default workflow. The user can still ask manually, but the a
 2. Use `shapelex_compress_text` for long text, docs, logs, or code-like snippets.
 3. Use `shapelex_compress_messages` for older conversation history.
 4. Use `shapelex_memory_overview` to see which session is active and whether cleanup is recommended.
-5. If the result has `compressionSkipped: true`, use the returned exact text. ShapeLex decided compression would not save enough tokens.
-6. Use `shapelex_context` first to get compact task-ready context in one call.
-7. In full mode, use `shapelex_inspect` only when you need deeper search, retrieve, explain, risk, or stats actions.
-8. Use `shapelex_expand` before relying on exact wording, numbers, dates, code, commands, negations, or user intent.
+5. Suggest a new `sessionId` when the project, repo, client, feature, or task changes.
+6. Suggest cleanup when memory is old, noisy, unrelated, or confusing. Preview cleanup before deleting.
+7. If the result has `compressionSkipped: true`, use the returned exact text. ShapeLex decided compression would not save enough tokens.
+8. Use `shapelex_context` first to get compact task-ready context in one call.
+9. In full mode, use `shapelex_inspect` only when you need deeper search, retrieve, explain, risk, or stats actions.
+10. Use `shapelex_expand` before relying on exact wording, numbers, dates, code, commands, negations, or user intent.
 
 ## Smoke Test
 
@@ -360,6 +370,12 @@ default
 ```
 
 Using `default` forever mixes unrelated memory. It works, but cleanup and search become worse.
+
+The agent should suggest changing sessions when it notices a project or task switch. A useful message is:
+
+```text
+This looks like a different project. I should use a new ShapeLex session so the memory does not mix.
+```
 
 To see current memory, ask the agent:
 
@@ -429,6 +445,8 @@ Clear one known session:
 ```
 
 ShapeLex does not silently delete old memory. Silent cleanup can break `sx://` handles that an agent still expects to expand.
+
+The agent should suggest cleanup, but it should preview first and ask before deleting. That keeps memory safe while still preventing old sessions from becoming noisy.
 
 ## Publishing Checklist
 

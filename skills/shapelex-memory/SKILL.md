@@ -17,9 +17,12 @@ ShapeLex primarily saves input tokens by replacing old context with searchable h
 2. Compress only long or repeated context. Use `shapelex_compress_text` for documents/code-like text and `shapelex_compress_messages` for older conversation history.
 3. If a compression result has `compressionSkipped: true`, keep using the returned exact `compressedText`; do not force handles into the prompt.
 4. Use `shapelex_memory_overview` when starting work, when the user asks what memory/session is active, when switching projects, or when cleanup might be needed.
-5. Use `shapelex_context` first. In full mode, use `shapelex_inspect` for deeper search or retrieve actions instead of expanding everything.
-6. Use `shapelex_expand` before relying on exact wording, numbers, dates, negations, user instructions, code, errors, commands, or decisions.
-7. Treat `risk.shouldExpand` and `risk.mustExpand` as binding guidance. If either is true for a detail you need, expand before acting.
+5. Recommend lean mode for normal work. Suggest full mode only when the user needs lower-level search, retrieve, explain, risk, or stats actions that lean mode does not expose.
+6. Suggest a new readable `sessionId` when the project, repo, client, feature, or task changes. Tell the user why in plain language.
+7. Suggest cleanup when memory is old, noisy, unrelated, or confusing. Preview cleanup with `shapelex_prune` using `dryRun: true`; ask before destructive `shapelex_prune` or `shapelex_clear`.
+8. Use `shapelex_context` first. In full mode, use `shapelex_inspect` for deeper search or retrieve actions instead of expanding everything.
+9. Use `shapelex_expand` before relying on exact wording, numbers, dates, negations, user instructions, code, errors, commands, or decisions.
+10. Treat `risk.shouldExpand` and `risk.mustExpand` as binding guidance. If either is true for a detail you need, expand before acting.
 
 ## Defaults
 

@@ -209,6 +209,10 @@ test("MCP initialize instructs agents to use ShapeLex proactively", async () => 
   assert.match(instructions, /proactively/);
   assert.match(instructions, /do not wait/);
   assert.match(instructions, /Briefly tell/);
+  assert.match(instructions, /Recommend lean mode/);
+  assert.match(instructions, /Suggest a new readable sessionId/);
+  assert.match(instructions, /Suggest cleanup/);
+  assert.match(instructions, /ask before destructive cleanup/);
   assert.match(instructions, /Expand sx:\/\/ handles/);
 });
 

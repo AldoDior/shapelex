@@ -20,6 +20,8 @@ ShapeLex mainly saves input tokens. It reduces old context that the model has to
 
 ShapeLex should be agent-driven after setup. You should not need to say "use ShapeLex" every time. Add the persistent instruction from [docs/AGENT_INSTRUCTIONS.md](docs/AGENT_INSTRUCTIONS.md) to your AI app or project rules when possible; then the agent should decide when ShapeLex helps, briefly tell you the first time it compresses context, and keep manual commands as a fallback.
 
+The agent should also guide memory hygiene. It should recommend lean mode for normal work, suggest full mode only for deeper inspection, suggest a new session when the project or task changes, and suggest cleanup when memory becomes old, noisy, unrelated, or confusing. Cleanup should be previewed first and confirmed before deleting memory.
+
 ## Install
 
 You need Node.js first. Node includes `npm` and `npx`, which are the commands used to run ShapeLex.
@@ -74,6 +76,8 @@ npx -y shapelex-mcp
 ```
 
 ShapeLex defaults to the lean toolset because that is the normal token-saving mode. Use `SHAPELEX_TOOLSET=full` only when you want the compact `shapelex_inspect` tool for lower-level search, retrieve, explain, risk, and stats actions.
+
+In normal use, let the agent recommend the mode. It should keep you on lean unless full mode would help inspect memory more deeply.
 
 ### Codex
 
@@ -238,6 +242,8 @@ ShapeLex principalmente ahorra tokens de entrada. Reduce el contexto viejo que e
 
 Después de configurarlo, ShapeLex debe ser guiado por el agente. No deberías tener que decir "usa ShapeLex" todo el tiempo. Agrega la instrucción persistente de [docs/AGENT_INSTRUCTIONS.md](docs/AGENT_INSTRUCTIONS.md) a tu app de IA o reglas del proyecto cuando sea posible; así el agente decide cuándo ShapeLex ayuda, te avisa brevemente la primera vez que comprime contexto y mantiene los comandos manuales como alternativa.
 
+El agente también debe guiar la higiene de memoria. Debe recomendar modo lean para el trabajo normal, sugerir modo full solo para inspección más profunda, sugerir una sesión nueva cuando cambie el proyecto o la tarea, y sugerir limpieza cuando la memoria esté vieja, ruidosa, mezclada o confusa. La limpieza debe mostrarse primero como vista previa y confirmarse antes de borrar memoria.
+
 ## Instalación
 
 Primero necesitas Node.js. Node incluye `npm` y `npx`, que son los comandos usados para ejecutar ShapeLex.
@@ -292,6 +298,8 @@ npx -y shapelex-mcp
 ```
 
 ShapeLex usa el modo lean por defecto porque es el modo normal para ahorrar tokens. Usa `SHAPELEX_TOOLSET=full` solo cuando quieras la herramienta compacta `shapelex_inspect` para acciones de búsqueda, recuperación, explicación, riesgo y estadísticas.
+
+En el uso normal, deja que el agente recomiende el modo. Debería mantenerte en lean salvo que full ayude a inspeccionar la memoria con más detalle.
 
 ### Codex
 
