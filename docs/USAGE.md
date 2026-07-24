@@ -33,7 +33,7 @@ Prefer `node ./bin/shapelex-mcp.js` or `npx -y shapelex-mcp` in MCP configs. Tha
 By default, local memory is stored in `.shapelex/`, which is ignored by git. To keep memory somewhere else:
 
 ```powershell
-$env:SHAPELEX_STORE_DIR="D:\path\to\private\shapelex-store"
+$env:SHAPELEX_STORE_DIR=".shapelex-private"
 npm start
 ```
 

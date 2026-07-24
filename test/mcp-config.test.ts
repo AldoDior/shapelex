@@ -25,8 +25,8 @@ test("package metadata is ready for public npm and GitHub", () => {
 
   assert.equal(packageJson.license, "MIT");
   assert.equal(packageJson.repository.type, "git");
-  assert.match(packageJson.repository.url, /github\.com\/AldoDior\/ShapeLex/);
-  assert.match(packageJson.bugs.url, /github\.com\/AldoDior\/ShapeLex\/issues/);
+  assert.equal(packageJson.repository.url, "git+https://github.com/AldoDior/shapelex.git");
+  assert.equal(packageJson.bugs.url, "https://github.com/AldoDior/shapelex/issues");
   assert.equal(packageJson.publishConfig.access, "public");
   assert.ok(packageJson.files.includes("CHANGELOG.md"));
   assert.ok(packageJson.files.includes("CONTRIBUTING.md"));

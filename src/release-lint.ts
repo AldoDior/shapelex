@@ -1,0 +1,118 @@
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import process from "node:process";
+
+const DISALLOWED_TRACKED_PREFIXES = [
+  ".npm-cache/",
+  ".shapelex/",
+  ".shapelex-codex/",
+  ".shapelex-cursor/",
+  ".shapelex-claude/",
+  "dist/",
+  "node_modules/"
+];
+
+const DISALLOWED_TRACKED_FILES = [
+  "shapelex-mcp-0.4.0.tgz"
+];
+
+const REQUIRED_PACKAGE_FILES = [
+  "bin/",
+  "docs/",
+  "dist/src/**/*.d.ts",
+  "dist/src/**/*.js",
+  "skills/",
+  "README.md",
+  "CHANGELOG.md",
+  "CONTRIBUTING.md",
+  "LICENSE",
+  "SECURITY.md"
+];
+
+const SECRET_OR_LOCAL_PATTERNS = [
+  { name: "GitHub classic token", pattern: /ghp_[A-Za-z0-9_]{20,}/ },
+  { name: "GitHub fine-grained token", pattern: /github_pat_[A-Za-z0-9_]+/ },
+  { name: "OpenAI-style API key", pattern: /sk-[A-Za-z0-9]{20,}/ },
+  { name: "private key block", pattern: /BEGIN (?:RSA |OPENSSH |EC |DSA )?PRIVATE KEY/ },
+  { name: "personal Windows user path", pattern: /C:\\Users\\[A-Za-z0-9._-]+/i },
+  { name: "personal AppData path", pattern: /AppData\\(?:Local|Roaming)/i },
+  { name: "workspace drive path", pattern: /D:\\(?:aldoo|Users)\\/i }
+];
+
+const TEXT_FILE_EXTENSIONS = new Set([
+  ".cjs", ".css", ".js", ".json", ".md", ".mjs", ".toml", ".ts", ".txt", ".yaml", ".yml"
+]);
+
+const trackedFiles = execFileSync("git", ["ls-files"], { encoding: "utf8" })
+  .split(/\r?\n/)
+  .filter(Boolean)
+  .sort();
+
+const failures: string[] = [];
+
+checkTrackedFiles();
+checkPackageMetadata();
+checkTextFiles();
+
+if (failures.length > 0) {
+  console.error("ShapeLex release lint failed:");
+  for (const failure of failures) {
+    console.error(`- ${failure}`);
+  }
+  process.exit(1);
+}
+
+console.log(`ShapeLex release lint passed (${trackedFiles.length} tracked files checked).`);
+
+function checkTrackedFiles() {
+  for (const file of trackedFiles) {
+    const normalized = file.replace(/\\/g, "/");
+    if (DISALLOWED_TRACKED_FILES.includes(normalized)) {
+      failures.push(`Do not track generated package artifact: ${file}`);
+    }
+    if (DISALLOWED_TRACKED_PREFIXES.some((prefix) => normalized.startsWith(prefix))) {
+      failures.push(`Do not track generated/private path: ${file}`);
+    }
+    if (normalized.startsWith("research/") && normalized !== "research/README.md") {
+      failures.push(`Do not track private research notes: ${file}`);
+    }
+  }
+}
+
+function checkPackageMetadata() {
+  const packageJson = JSON.parse(fs.readFileSync("package.json", "utf8"));
+  for (const required of REQUIRED_PACKAGE_FILES) {
+    if (!packageJson.files.includes(required)) {
+      failures.push(`package.json files allowlist is missing ${required}`);
+    }
+  }
+  if (packageJson.repository?.url !== "git+https://github.com/AldoDior/shapelex.git") {
+    failures.push("package.json repository URL should use the canonical public repo URL.");
+  }
+  if (packageJson.bugs?.url !== "https://github.com/AldoDior/shapelex/issues") {
+    failures.push("package.json bugs URL should use the canonical public repo URL.");
+  }
+}
+
+function checkTextFiles() {
+  for (const file of trackedFiles) {
+    if (!TEXT_FILE_EXTENSIONS.has(path.extname(file))) {
+      continue;
+    }
+    const text = fs.readFileSync(file, "utf8");
+    const lines = text.split(/\r?\n/);
+
+    for (const item of SECRET_OR_LOCAL_PATTERNS) {
+      if (item.pattern.test(text)) {
+        failures.push(`${item.name} found in ${file}`);
+      }
+    }
+
+    lines.forEach((line, index) => {
+      if (/[ \t]+$/.test(line)) {
+        failures.push(`Trailing whitespace in ${file}:${index + 1}`);
+      }
+    });
+  }
+}

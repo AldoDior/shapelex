@@ -35,8 +35,26 @@ jobs:
       - name: Doctor
         run: npm run doctor
 
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
       - name: Test
         run: npm test
+
+      - name: Smoke eval
+        run: npm run smoke
+
+      - name: End-to-end eval
+        run: npm run e2e
+
+      - name: Benchmark
+        run: npm run benchmark
+
+      - name: Audit
+        run: npm audit --audit-level=moderate --cache ./.npm-cache
 
       - name: Package dry run
         run: npm pack --dry-run --cache ./.npm-cache

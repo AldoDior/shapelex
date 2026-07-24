@@ -5,13 +5,13 @@
   "type": "module",
   "main": "./dist/src/shapelex.js",
   "types": "./dist/src/shapelex.d.ts",
-  "homepage": "https://github.com/AldoDior/ShapeLex#readme",
+  "homepage": "https://github.com/AldoDior/shapelex#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/AldoDior/ShapeLex.git"
+    "url": "git+https://github.com/AldoDior/shapelex.git"
   },
   "bugs": {
-    "url": "https://github.com/AldoDior/ShapeLex/issues"
+    "url": "https://github.com/AldoDior/shapelex/issues"
   },
   "files": [
     "bin/",
@@ -32,6 +32,9 @@
     "build": "tsc -p tsconfig.json",
     "start": "npm run build && node ./bin/shapelex-mcp.js",
     "doctor": "npm run build && node ./bin/shapelex-mcp.js --doctor",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "npm run build && node ./dist/src/release-lint.js",
+    "check": "npm run doctor && npm run typecheck && npm run lint && npm test && npm run smoke && npm run e2e && npm run benchmark",
     "test": "npm run build && node ./dist/src/run-tests.js",
     "benchmark": "npm run build && node ./dist/src/shapelex-benchmark.js",
     "smoke": "npm run build && node ./dist/src/shapelex-smoke-eval.js",
