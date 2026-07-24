@@ -80,7 +80,7 @@ Optional environment variables:
 SHAPELEX_STORE_DIR=.shapelex
 ```
 
-ShapeLex defaults to the lean toolset because that is the normal token-saving mode. Use `SHAPELEX_TOOLSET=full` only when you want lower-level debug tools.
+ShapeLex defaults to the lean toolset because that is the normal token-saving mode. Use `SHAPELEX_TOOLSET=full` only when you want the compact `shapelex_inspect` tool for lower-level search, retrieve, explain, risk, and stats actions.
 
 ## How It Works
 
@@ -148,7 +148,7 @@ Lean mode exposes the core workflow tools:
 - `shapelex_clear`
 - `shapelex_prune`
 
-Full mode also exposes lower-level search, retrieve, explain, risk, and stats tools.
+Full mode adds one compact `shapelex_inspect` tool for lower-level search, retrieve, explain, risk, and stats actions without exposing a large separate debug tool list.
 
 ## Security
 
@@ -232,7 +232,7 @@ Variable opcional recomendada:
 SHAPELEX_STORE_DIR=.shapelex
 ```
 
-ShapeLex usa el modo lean por defecto porque es el modo normal para ahorrar tokens. Usa `SHAPELEX_TOOLSET=full` solo cuando quieras herramientas de depuración más detalladas.
+ShapeLex usa el modo lean por defecto porque es el modo normal para ahorrar tokens. Usa `SHAPELEX_TOOLSET=full` solo cuando quieras la herramienta compacta `shapelex_inspect` para acciones de búsqueda, recuperación, explicación, riesgo y estadísticas.
 
 ## Privacidad
 

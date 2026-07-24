@@ -109,9 +109,9 @@ $env:SHAPELEX_TOOLSET="lean"
 npm start
 ```
 
-Lean mode exposes the normal low-overhead workflow: compress, get compact context, expand exact handles, inspect memory, and clean sessions. Use `SHAPELEX_TOOLSET="full"` only when you want lower-level search, retrieve, risk, and debug tools.
+Lean mode exposes the normal low-overhead workflow: compress, get compact context, expand exact handles, inspect memory, and clean sessions. Use `SHAPELEX_TOOLSET="full"` only when you want the compact `shapelex_inspect` tool for lower-level search, retrieve, explain, risk, and stats actions.
 
-The live Codex benchmark showed why this matters: exposing every MCP tool can cost more tokens than raw context. Lean mode fixed that by reducing the tool list loaded into the model.
+The live Codex benchmark showed why this matters: exposing too many MCP tools can cost more tokens than raw context. ShapeLex defaults to lean, and full mode keeps the extra surface consolidated into one compact inspect tool.
 
 ## Claude Code
 
@@ -245,7 +245,7 @@ If Cursor shows more ShapeLex tools than expected, disable the lower-level tools
 3. Use `shapelex_memory_overview` to see which session is active and whether cleanup is recommended.
 4. If the result has `compressionSkipped: true`, use the returned exact text. ShapeLex decided compression would not save enough tokens.
 5. Use `shapelex_context` first to get compact task-ready context in one call.
-6. Use `shapelex_search` and `shapelex_retrieve` only when you need deeper navigation.
+6. In full mode, use `shapelex_inspect` only when you need deeper search, retrieve, explain, risk, or stats actions.
 7. Use `shapelex_expand` before relying on exact wording, numbers, dates, code, commands, negations, or user intent.
 
 ## Smoke Test

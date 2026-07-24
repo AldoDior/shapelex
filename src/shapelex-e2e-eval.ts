@@ -125,6 +125,7 @@ const scenarios: Scenario[] = [
 
 export async function runE2EEval() {
   const handleJsonRpc = createJsonRpcHandler(new ShapeLexEngine());
+  const fullToolSchemaTokens = await toolSchemaTokens("full");
   const results = [];
 
   for (const scenario of scenarios) {
@@ -168,9 +169,12 @@ export async function runE2EEval() {
       comparison: {
         tokenDelta: rawTokens - shapeLexTokens,
         savingsRatio: tokenSavings(rawTokens, shapeLexTokens),
+        fullModeLoadedTokens: shapeLexTokens + fullToolSchemaTokens,
+        fullModeLoadedSavingsRatio: tokenSavings(rawTokens, shapeLexTokens + fullToolSchemaTokens),
         sameQualityScore: rawQuality.score === shapeLexQuality.score,
         shapeLexQualityMatchesRaw: shapeLexQuality.score >= rawQuality.score,
         passed: shapeLexTokens < rawTokens
+          && shapeLexTokens + fullToolSchemaTokens < rawTokens
           && shapeLexQuality.score >= rawQuality.score
           && factCoverage(shapeLexPrompt, scenario).coverage === 1
       }
@@ -186,13 +190,22 @@ export async function runE2EEval() {
       passed,
       totalRawPromptTokens: sum(results.map((result) => result.raw.promptTokens)),
       totalShapeLexPromptTokens: sum(results.map((result) => result.shapeLex.promptTokens)),
+      fullToolSchemaTokens,
+      totalFullModeLoadedTokens: sum(results.map((result) => result.comparison.fullModeLoadedTokens)),
       totalTokenDelta: sum(results.map((result) => result.comparison.tokenDelta)),
       averageSavingsRatio: average(results.map((result) => result.comparison.savingsRatio)),
+      averageFullModeLoadedSavingsRatio: average(results.map((result) => result.comparison.fullModeLoadedSavingsRatio)),
       averageRawQuality: average(results.map((result) => result.raw.quality.score)),
       averageShapeLexQuality: average(results.map((result) => result.shapeLex.quality.score))
     },
     results
   };
+}
+
+async function toolSchemaTokens(toolset: "lean" | "full") {
+  const handleJsonRpc = createJsonRpcHandler(new ShapeLexEngine({ persistent: false }), { toolset });
+  const list = await handleJsonRpc({ jsonrpc: "2.0", id: `schema-${toolset}`, method: "tools/list" });
+  return estimateTokens(JSON.stringify(list.result.tools));
 }
 
 function renderRawPrompt(scenario: Scenario) {

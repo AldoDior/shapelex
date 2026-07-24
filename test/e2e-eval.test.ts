@@ -7,6 +7,8 @@ test("e2e eval preserves generated-code quality while reducing prompt tokens", a
 
   assert.equal(report.summary.passed, true);
   assert.ok(report.summary.totalShapeLexPromptTokens < report.summary.totalRawPromptTokens);
+  assert.ok(report.summary.fullToolSchemaTokens <= 900);
+  assert.ok(report.results.every((result) => result.comparison.fullModeLoadedTokens < result.raw.promptTokens));
   assert.equal(report.summary.averageShapeLexQuality, report.summary.averageRawQuality);
   assert.ok(report.results.every((result) => result.shapeLex.factCoverage.coverage === 1));
 });

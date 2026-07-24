@@ -69,7 +69,7 @@ SHAPELEX_STORE_DIR=.shapelex
 
 ShapeLex usa el modo lean por defecto. Eso mantiene pocas herramientas visibles para la IA y ayuda a reducir tokens.
 
-Usa `SHAPELEX_TOOLSET=full` solo si quieres herramientas de depuración más detalladas.
+Usa `SHAPELEX_TOOLSET=full` solo si quieres la herramienta compacta `shapelex_inspect` para acciones de búsqueda, recuperación, explicación, riesgo y estadísticas.
 
 `SHAPELEX_STORE_DIR=.shapelex` indica donde se guarda la memoria local.
 
@@ -243,5 +243,5 @@ npm run check
 1. Instala Node.js.
 2. Prueba `npx -y shapelex-mcp --doctor`.
 3. Configura tu app de IA para ejecutar `npx -y shapelex-mcp`.
-4. Usa el modo lean por defecto. Solo cambia a `SHAPELEX_TOOLSET=full` para depuración.
+4. Usa el modo lean por defecto. Solo cambia a `SHAPELEX_TOOLSET=full` si necesitas `shapelex_inspect`.
 5. No subas carpetas `.shapelex*` a GitHub.

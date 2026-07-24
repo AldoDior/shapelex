@@ -21,39 +21,8 @@ const leanToolNames = new Set([
 
 const tools = [
   {
-    name: "shapelex_compress",
-    title: "Compress into navigable ShapeLex memory",
-    description: "Compress text, code, or conversation into hierarchical navigable memory with risk assessment.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        sessionId: { type: "string" },
-        mode: { type: "string", enum: ["text", "code", "conversation"] },
-        label: { type: "string" },
-        text: { type: "string" },
-        messages: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              role: { type: "string" },
-              content: { type: "string" }
-            },
-            required: ["role", "content"]
-          }
-        },
-        budgetTokens: { type: "number" }
-      },
-      anyOf: [
-        { required: ["text"] },
-        { required: ["messages"] }
-      ],
-      additionalProperties: false
-    }
-  },
-  {
     name: "shapelex_compress_messages",
-    description: "Compress conversation messages into compact ShapeLex handles with token-savings estimates.",
+    description: "Compress older chat messages into sx:// handles.",
     inputSchema: {
       type: "object",
       properties: {
@@ -78,7 +47,7 @@ const tools = [
   },
   {
     name: "shapelex_compress_text",
-    description: "Compress text, docs, or pasted content into expandable ShapeLex handles.",
+    description: "Compress text/code/docs into sx:// handles.",
     inputSchema: {
       type: "object",
       properties: {
@@ -94,7 +63,7 @@ const tools = [
   },
   {
     name: "shapelex_expand",
-    description: "Expand an sx:// handle back to exact original text while the session is alive.",
+    description: "Expand sx:// handle to exact text.",
     inputSchema: {
       type: "object",
       properties: {
@@ -106,25 +75,8 @@ const tools = [
     }
   },
   {
-    name: "shapelex_search",
-    title: "Search ShapeLex memory",
-    description: "Search compressed ShapeLex memory without expanding full text.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        sessionId: { type: "string" },
-        query: { type: "string" },
-        mode: { type: "string", enum: ["text", "code", "conversation"] },
-        limit: { type: "number" }
-      },
-      required: ["query"],
-      additionalProperties: false
-    }
-  },
-  {
     name: "shapelex_context",
-    title: "Get compact ShapeLex context",
-    description: "Search ShapeLex memory and return compact task-ready context in one call.",
+    description: "Return compact task-ready memory.",
     inputSchema: {
       type: "object",
       properties: {
@@ -139,67 +91,27 @@ const tools = [
     }
   },
   {
-    name: "shapelex_retrieve",
-    title: "Retrieve ShapeLex levels",
-    description: "Retrieve navigable ShapeLex levels for a document or expand a span URI.",
+    name: "shapelex_inspect",
+    description: "Full mode only: search/retrieve/explain/risk/stats.",
     inputSchema: {
       type: "object",
       properties: {
+        action: { type: "string", enum: ["search", "retrieve", "explain", "risk", "stats"] },
         sessionId: { type: "string" },
+        query: { type: "string" },
         uri: { type: "string" },
         level: { type: "number" },
-        query: { type: "string" }
-      },
-      required: ["uri"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "shapelex_explain",
-    title: "Explain ShapeLex memory",
-    description: "Explain how to use a ShapeLex URI, its levels, and risk policy.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        sessionId: { type: "string" },
-        uri: { type: "string" }
-      },
-      required: ["uri"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "shapelex_risk_assessment",
-    title: "Assess ShapeLex risk",
-    description: "Assess semantic loss, ambiguity, and expansion need for text or an existing ShapeLex URI.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        sessionId: { type: "string" },
-        uri: { type: "string" },
+        mode: { type: "string", enum: ["text", "code", "conversation"] },
+        limit: { type: "number" },
         text: { type: "string" }
       },
-      anyOf: [
-        { required: ["uri"] },
-        { required: ["text"] }
-      ],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "shapelex_stats",
-    description: "Return active in-memory ShapeLex session and handle statistics.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        sessionId: { type: "string" }
-      },
+      required: ["action"],
       additionalProperties: false
     }
   },
   {
     name: "shapelex_memory_overview",
-    description: "Explain ShapeLex sessions in plain language and suggest cleanup actions.",
+    description: "Show active sessions and cleanup suggestions.",
     inputSchema: {
       type: "object",
       properties: {
@@ -210,7 +122,7 @@ const tools = [
   },
   {
     name: "shapelex_clear",
-    description: "Clear one ShapeLex session or all ephemeral in-memory sessions.",
+    description: "Clear one session or all memory.",
     inputSchema: {
       type: "object",
       properties: {
@@ -221,7 +133,7 @@ const tools = [
   },
   {
     name: "shapelex_prune",
-    description: "Preview or remove old ShapeLex sessions by last access time or maximum session count.",
+    description: "Preview/remove old sessions.",
     inputSchema: {
       type: "object",
       properties: {
@@ -333,9 +245,6 @@ function callTool(targetEngine: ShapeLexEngine, activeTools: any[], params: any)
   let result;
 
   switch (name) {
-    case "shapelex_compress":
-      result = targetEngine.compress(args);
-      break;
     case "shapelex_compress_messages":
       result = targetEngine.compressMessages(args);
       break;
@@ -345,23 +254,11 @@ function callTool(targetEngine: ShapeLexEngine, activeTools: any[], params: any)
     case "shapelex_expand":
       result = targetEngine.expand(args);
       break;
-    case "shapelex_search":
-      result = targetEngine.search(args);
+    case "shapelex_inspect":
+      result = inspectShapeLex(targetEngine, args);
       break;
     case "shapelex_context":
       result = targetEngine.context(args);
-      break;
-    case "shapelex_retrieve":
-      result = targetEngine.retrieve(args);
-      break;
-    case "shapelex_explain":
-      result = targetEngine.explain(args);
-      break;
-    case "shapelex_risk_assessment":
-      result = targetEngine.riskAssessment(args);
-      break;
-    case "shapelex_stats":
-      result = targetEngine.stats(args);
       break;
     case "shapelex_memory_overview":
       result = targetEngine.memoryOverview(args);
@@ -385,6 +282,23 @@ function callTool(targetEngine: ShapeLexEngine, activeTools: any[], params: any)
     ],
     structuredContent: result
   };
+}
+
+function inspectShapeLex(targetEngine: ShapeLexEngine, args: any): any {
+  switch (args.action) {
+    case "search":
+      return targetEngine.search(args);
+    case "retrieve":
+      return targetEngine.retrieve(args);
+    case "explain":
+      return targetEngine.explain(args);
+    case "risk":
+      return targetEngine.riskAssessment(args);
+    case "stats":
+      return targetEngine.stats(args);
+    default:
+      throw new TypeError("shapelex_inspect action must be search, retrieve, explain, risk, or stats");
+  }
 }
 
 function errorResponse(id: any, error: any): any {

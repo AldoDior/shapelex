@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { ShapeLexEngine, charShape, fingerprintTokens } from "../src/shapelex.js";
+import { ShapeLexEngine, charShape, estimateTokens, fingerprintTokens } from "../src/shapelex.js";
 import { createJsonRpcHandler, handleJsonRpc } from "../src/mcp-server.js";
 
 test("charShape is stable for identifiers and mixed case", () => {
@@ -203,6 +203,60 @@ test("MCP lean toolset exposes only the core low-overhead tools", async () => {
     "shapelex_clear",
     "shapelex_prune"
   ]);
+});
+
+test("MCP full toolset stays compact with one inspect tool", async () => {
+  const engine = new ShapeLexEngine();
+  const handleFullJsonRpc = createJsonRpcHandler(engine, { toolset: "full" });
+  const list = await handleFullJsonRpc({ jsonrpc: "2.0", id: 33, method: "tools/list" });
+  const names = list.result.tools.map((tool) => tool.name);
+  const schemaTokens = estimateTokens(JSON.stringify(list.result.tools));
+
+  assert.deepEqual(names, [
+    "shapelex_compress_messages",
+    "shapelex_compress_text",
+    "shapelex_expand",
+    "shapelex_context",
+    "shapelex_inspect",
+    "shapelex_memory_overview",
+    "shapelex_clear",
+    "shapelex_prune"
+  ]);
+  assert.ok(schemaTokens <= 900);
+});
+
+test("MCP full inspect tool searches lower-level memory", async () => {
+  const engine = new ShapeLexEngine();
+  const handleFullJsonRpc = createJsonRpcHandler(engine, { toolset: "full" });
+
+  await handleFullJsonRpc({
+    jsonrpc: "2.0",
+    id: 34,
+    method: "tools/call",
+    params: {
+      name: "shapelex_compress_text",
+      arguments: {
+        sessionId: "full-inspect",
+        text: "Searchable ShapeLex full-mode context about invoice approval. ".repeat(20)
+      }
+    }
+  });
+
+  const found = await handleFullJsonRpc({
+    jsonrpc: "2.0",
+    id: 35,
+    method: "tools/call",
+    params: {
+      name: "shapelex_inspect",
+      arguments: {
+        action: "search",
+        sessionId: "full-inspect",
+        query: "invoice approval"
+      }
+    }
+  });
+
+  assert.equal(found.result.structuredContent.results.length, 1);
 });
 
 test("MCP lean toolset rejects hidden full-tool calls", async () => {

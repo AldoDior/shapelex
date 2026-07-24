@@ -50,7 +50,7 @@ export async function runDoctor({ cwd = process.cwd() } = {}) {
     nextSteps: ok
       ? [
         "Start the MCP server with node ./bin/shapelex-mcp.js, or use the included Codex/Cursor/Claude project configs.",
-        "ShapeLex defaults to the lean toolset. Set SHAPELEX_TOOLSET=full only when debugging ShapeLex itself."
+        "ShapeLex defaults to the lean toolset. Set SHAPELEX_TOOLSET=full only when you need the compact inspect tool."
       ]
       : [
         "Run npm install, then npm run build, then npm run doctor.",
