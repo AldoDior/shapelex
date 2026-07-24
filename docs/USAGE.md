@@ -115,7 +115,9 @@ The live Codex benchmark showed why this matters: exposing too many MCP tools ca
 
 ## Claude Code
 
-This repo includes a project-scoped Claude Code MCP config:
+Use this section if you want ShapeLex in Claude Code.
+
+This repo already includes a project-scoped Claude Code MCP config:
 
 ```text
 .mcp.json
@@ -123,29 +125,50 @@ This repo includes a project-scoped Claude Code MCP config:
 
 Claude Code may ask you to approve project MCP servers the first time it sees this file. That is expected.
 
-For local source usage after `npm run build`:
+Recommended npm setup:
 
-```bash
-claude mcp add --transport stdio --env SHAPELEX_STORE_DIR=.shapelex-claude --env SHAPELEX_MAX_STORE_MB=100 --env SHAPELEX_TOOLSET=lean shapelex -- node ./bin/shapelex-mcp.js
-```
-
-For package usage from npm:
+1. Open a terminal in your project folder.
+2. Run:
 
 ```bash
 claude mcp add --transport stdio --env SHAPELEX_STORE_DIR=.shapelex-claude --env SHAPELEX_MAX_STORE_MB=100 --env SHAPELEX_TOOLSET=lean shapelex -- npx -y shapelex-mcp
 ```
 
-On Windows, if Claude Code cannot launch `npx` directly, use this command form instead:
+3. Verify:
+
+```bash
+claude mcp list
+```
+
+4. Open Claude Code and check:
+
+```text
+/mcp
+```
+
+On Windows, if Claude Code cannot launch `npx` directly, use this command instead:
 
 ```powershell
 claude mcp add --transport stdio --env SHAPELEX_STORE_DIR=.shapelex-claude --env SHAPELEX_MAX_STORE_MB=100 --env SHAPELEX_TOOLSET=lean shapelex -- cmd /c npx -y shapelex-mcp
 ```
 
-Use `claude mcp list` and `/mcp` in Claude Code to verify that the server is connected. The `/mcp` panel shows the tool count, so it is a quick way to confirm ShapeLex is not exposing the full tool set by accident.
+For local source usage after `npm run build`, use this instead of the npm command:
+
+```bash
+claude mcp add --transport stdio --env SHAPELEX_STORE_DIR=.shapelex-claude --env SHAPELEX_MAX_STORE_MB=100 --env SHAPELEX_TOOLSET=lean shapelex -- node ./bin/shapelex-mcp.js
+```
+
+After setup, ask Claude Code:
+
+```text
+Use ShapeLex memory overview. What memory session am I using?
+```
 
 ## Codex
 
-ShapeLex is designed as a local stdio MCP server. This repo includes a project-local Codex config:
+Use this section if you want ShapeLex in Codex.
+
+ShapeLex is designed as a local stdio MCP server. This repo already includes a project-local Codex config:
 
 ```text
 .codex/config.toml
@@ -158,7 +181,7 @@ npm install
 npm run build
 ```
 
-For npm usage in another project, configure Codex to start ShapeLex with:
+For npm usage in another project, configure Codex to start ShapeLex with this command:
 
 ```text
 npx -y shapelex-mcp
@@ -170,37 +193,52 @@ Use this environment variable:
 SHAPELEX_STORE_DIR=.shapelex-codex
 ```
 
+Example Codex MCP config:
+
+```toml
+[mcp_servers.shapelex]
+command = "npx"
+args = ["-y", "shapelex-mcp"]
+startup_timeout_sec = 10
+tool_timeout_sec = 60
+
+[mcp_servers.shapelex.env]
+SHAPELEX_STORE_DIR = ".shapelex-codex"
+SHAPELEX_MAX_STORE_MB = "100"
+SHAPELEX_TOOLSET = "lean"
+```
+
 Then open a new Codex task and ask:
 
 ```text
 Use ShapeLex memory overview. What memory session am I using?
 ```
 
-The MCP server should start from:
+For this source repo, the included config starts ShapeLex from:
 
 ```text
 node ./bin/shapelex-mcp.js
-```
-
-with local memory stored in:
-
-```text
-.shapelex-codex/
 ```
 
 Use the bundled `skills/shapelex-memory` skill instructions alongside the MCP server so the agent knows when to compress, search, retrieve, expand, and keep chat output terse.
 
 ## Cursor
 
-This repo includes a project-scoped Cursor MCP config:
+Use this section if you want ShapeLex in Cursor.
+
+This repo already includes a project-scoped Cursor MCP config:
 
 ```text
 .cursor/mcp.json
 ```
 
-Cursor supports MCP servers through `.cursor/mcp.json` for a project or `~/.cursor/mcp.json` globally. Cursor can also toggle MCP tools from chat; disabled tools are not loaded into context. ShapeLex uses lean mode by default so the useful tools stay available without loading the bigger debug surface.
+Cursor supports MCP servers through `.cursor/mcp.json` for a project or `~/.cursor/mcp.json` globally. ShapeLex uses lean mode by default so the useful tools stay available without loading the bigger full-mode surface.
 
-For package usage from npm, use:
+Recommended npm setup:
+
+1. Create a `.cursor` folder in your project if it does not exist.
+2. Create or edit `.cursor/mcp.json`.
+3. Put this inside:
 
 ```json
 {
@@ -209,7 +247,7 @@ For package usage from npm, use:
       "command": "npx",
       "args": ["-y", "shapelex-mcp"],
       "env": {
-        "SHAPELEX_STORE_DIR": ".shapelex",
+        "SHAPELEX_STORE_DIR": ".shapelex-cursor",
         "SHAPELEX_TOOLSET": "lean"
       }
     }
@@ -217,7 +255,14 @@ For package usage from npm, use:
 }
 ```
 
-For local source usage after `npm run build`, use:
+4. Restart Cursor or reload the window.
+5. In Cursor chat, ask:
+
+```text
+Use ShapeLex memory overview. What memory session am I using?
+```
+
+For local source usage after `npm run build`, use this instead of the npm command:
 
 ```json
 {
@@ -226,7 +271,7 @@ For local source usage after `npm run build`, use:
       "command": "node",
       "args": ["C:\\path\\to\\ShapeLex\\bin\\shapelex-mcp.js"],
       "env": {
-        "SHAPELEX_STORE_DIR": ".shapelex",
+        "SHAPELEX_STORE_DIR": ".shapelex-cursor",
         "SHAPELEX_TOOLSET": "lean"
       }
     }
@@ -234,9 +279,7 @@ For local source usage after `npm run build`, use:
 }
 ```
 
-In Cursor chat, ask: "Use ShapeLex memory overview. What memory session am I using?" The agent should call `shapelex_memory_overview`.
-
-If Cursor shows more ShapeLex tools than expected, disable the lower-level tools in Cursor or set `SHAPELEX_TOOLSET` back to `lean`.
+If Cursor shows more ShapeLex tools than expected, set `SHAPELEX_TOOLSET` back to `lean` or disable unwanted tools in Cursor.
 
 ## Tool Workflow
 

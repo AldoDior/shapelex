@@ -75,13 +75,15 @@ Usa `SHAPELEX_TOOLSET=full` solo si quieres la herramienta compacta `shapelex_in
 
 ## Codex
 
+Usa esta sección si quieres ShapeLex en Codex.
+
 Si estás usando este repositorio directamente, ya existe una configuración en:
 
 ```text
 .codex/config.toml
 ```
 
-En un proyecto nuevo, configura Codex para iniciar ShapeLex con:
+En un proyecto nuevo, configura Codex para iniciar ShapeLex con este comando:
 
 ```text
 npx -y shapelex-mcp
@@ -93,6 +95,21 @@ Usa esta variable:
 SHAPELEX_STORE_DIR=.shapelex-codex
 ```
 
+Ejemplo de configuración MCP para Codex:
+
+```toml
+[mcp_servers.shapelex]
+command = "npx"
+args = ["-y", "shapelex-mcp"]
+startup_timeout_sec = 10
+tool_timeout_sec = 60
+
+[mcp_servers.shapelex.env]
+SHAPELEX_STORE_DIR = ".shapelex-codex"
+SHAPELEX_MAX_STORE_MB = "100"
+SHAPELEX_TOOLSET = "lean"
+```
+
 Para probarlo, abre una tarea nueva en Codex y pregunta:
 
 ```text
@@ -102,6 +119,8 @@ Use ShapeLex memory overview. What memory session am I using?
 La respuesta debería decir qué sesión está usando y si hay memoria que limpiar.
 
 ## Claude Code
+
+Usa esta sección si quieres ShapeLex en Claude Code.
 
 Para agregar ShapeLex desde npm:
 
@@ -129,7 +148,15 @@ Dentro de Claude Code también puedes abrir:
 
 Eso ayuda a confirmar que ShapeLex está conectado.
 
+Después pregunta en Claude Code:
+
+```text
+Use ShapeLex memory overview. What memory session am I using?
+```
+
 ## Cursor
+
+Usa esta sección si quieres ShapeLex en Cursor.
 
 En Cursor, crea o edita este archivo dentro de tu proyecto:
 
@@ -156,7 +183,7 @@ Contenido recomendado:
 
 Luego reinicia Cursor o recarga la ventana.
 
-En el chat de Cursor pregunta:
+En el chat de Cursor, pregunta:
 
 ```text
 Use ShapeLex memory overview. What memory session am I using?

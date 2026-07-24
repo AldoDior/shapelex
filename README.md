@@ -63,24 +63,84 @@ Most users do not need to start it manually. Codex, Claude Code, or Cursor start
 
 ## AI App Setup
 
-For full setup instructions, see:
+ShapeLex works as an MCP server. Each AI app needs to know what command starts ShapeLex.
 
-- English: [docs/USAGE.md](docs/USAGE.md)
-- Spanish: [docs/USAGE.es.md](docs/USAGE.es.md)
-
-Recommended MCP command for most tools:
+Recommended command:
 
 ```bash
 npx -y shapelex-mcp
 ```
 
-Optional environment variables:
+ShapeLex defaults to the lean toolset because that is the normal token-saving mode. Use `SHAPELEX_TOOLSET=full` only when you want the compact `shapelex_inspect` tool for lower-level search, retrieve, explain, risk, and stats actions.
 
-```text
-SHAPELEX_STORE_DIR=.shapelex
+### Codex
+
+In a Codex project, configure an MCP server named `shapelex` that runs:
+
+```bash
+npx -y shapelex-mcp
 ```
 
-ShapeLex defaults to the lean toolset because that is the normal token-saving mode. Use `SHAPELEX_TOOLSET=full` only when you want the compact `shapelex_inspect` tool for lower-level search, retrieve, explain, risk, and stats actions.
+Recommended environment:
+
+```text
+SHAPELEX_STORE_DIR=.shapelex-codex
+```
+
+Then open a new Codex task and ask:
+
+```text
+Use ShapeLex memory overview. What memory session am I using?
+```
+
+### Claude Code
+
+Run this command in your project folder:
+
+```bash
+claude mcp add --transport stdio --env SHAPELEX_STORE_DIR=.shapelex-claude --env SHAPELEX_MAX_STORE_MB=100 shapelex -- npx -y shapelex-mcp
+```
+
+On Windows, if Claude Code cannot launch `npx` directly, use:
+
+```powershell
+claude mcp add --transport stdio --env SHAPELEX_STORE_DIR=.shapelex-claude --env SHAPELEX_MAX_STORE_MB=100 shapelex -- cmd /c npx -y shapelex-mcp
+```
+
+Verify:
+
+```bash
+claude mcp list
+```
+
+### Cursor
+
+Create or edit `.cursor/mcp.json` inside your project:
+
+```json
+{
+  "mcpServers": {
+    "shapelex": {
+      "command": "npx",
+      "args": ["-y", "shapelex-mcp"],
+      "env": {
+        "SHAPELEX_STORE_DIR": ".shapelex-cursor"
+      }
+    }
+  }
+}
+```
+
+Restart Cursor or reload the window. In Cursor chat, ask:
+
+```text
+Use ShapeLex memory overview. What memory session am I using?
+```
+
+For detailed setup instructions, see:
+
+- English: [docs/USAGE.md](docs/USAGE.md)
+- Spanish: [docs/USAGE.es.md](docs/USAGE.es.md)
 
 ## How It Works
 
@@ -215,24 +275,84 @@ La mayoría de usuarios no necesita iniciarlo manualmente. Codex, Claude Code o 
 
 ## Configuración De Apps De IA
 
-Instrucciones completas:
+ShapeLex funciona como servidor MCP. Cada app de IA necesita saber qué comando inicia ShapeLex.
 
-- Inglés: [docs/USAGE.md](docs/USAGE.md)
-- Español: [docs/USAGE.es.md](docs/USAGE.es.md)
-
-Comando MCP recomendado para la mayoría de herramientas:
+Comando recomendado:
 
 ```bash
 npx -y shapelex-mcp
 ```
 
-Variable opcional recomendada:
+ShapeLex usa el modo lean por defecto porque es el modo normal para ahorrar tokens. Usa `SHAPELEX_TOOLSET=full` solo cuando quieras la herramienta compacta `shapelex_inspect` para acciones de búsqueda, recuperación, explicación, riesgo y estadísticas.
 
-```text
-SHAPELEX_STORE_DIR=.shapelex
+### Codex
+
+En un proyecto de Codex, configura un servidor MCP llamado `shapelex` que ejecute:
+
+```bash
+npx -y shapelex-mcp
 ```
 
-ShapeLex usa el modo lean por defecto porque es el modo normal para ahorrar tokens. Usa `SHAPELEX_TOOLSET=full` solo cuando quieras la herramienta compacta `shapelex_inspect` para acciones de búsqueda, recuperación, explicación, riesgo y estadísticas.
+Variable recomendada:
+
+```text
+SHAPELEX_STORE_DIR=.shapelex-codex
+```
+
+Después abre una tarea nueva en Codex y pregunta:
+
+```text
+Use ShapeLex memory overview. What memory session am I using?
+```
+
+### Claude Code
+
+Ejecuta este comando dentro de la carpeta de tu proyecto:
+
+```bash
+claude mcp add --transport stdio --env SHAPELEX_STORE_DIR=.shapelex-claude --env SHAPELEX_MAX_STORE_MB=100 shapelex -- npx -y shapelex-mcp
+```
+
+En Windows, si Claude Code no puede abrir `npx` directamente, usa:
+
+```powershell
+claude mcp add --transport stdio --env SHAPELEX_STORE_DIR=.shapelex-claude --env SHAPELEX_MAX_STORE_MB=100 shapelex -- cmd /c npx -y shapelex-mcp
+```
+
+Verifica:
+
+```bash
+claude mcp list
+```
+
+### Cursor
+
+Crea o edita `.cursor/mcp.json` dentro de tu proyecto:
+
+```json
+{
+  "mcpServers": {
+    "shapelex": {
+      "command": "npx",
+      "args": ["-y", "shapelex-mcp"],
+      "env": {
+        "SHAPELEX_STORE_DIR": ".shapelex-cursor"
+      }
+    }
+  }
+}
+```
+
+Reinicia Cursor o recarga la ventana. En el chat de Cursor, pregunta:
+
+```text
+Use ShapeLex memory overview. What memory session am I using?
+```
+
+Instrucciones completas:
+
+- Inglés: [docs/USAGE.md](docs/USAGE.md)
+- Español: [docs/USAGE.es.md](docs/USAGE.es.md)
 
 ## Privacidad
 
