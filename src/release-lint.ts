@@ -20,14 +20,35 @@ const DISALLOWED_TRACKED_FILES = [
 const REQUIRED_PACKAGE_FILES = [
   "bin/",
   "docs/",
-  "dist/src/**/*.d.ts",
-  "dist/src/**/*.js",
+  "dist/src/mcp-server.d.ts",
+  "dist/src/mcp-server.js",
+  "dist/src/shapelex-doctor.d.ts",
+  "dist/src/shapelex-doctor.js",
+  "dist/src/shapelex.d.ts",
+  "dist/src/shapelex.js",
   "skills/",
   "README.md",
   "CHANGELOG.md",
   "CONTRIBUTING.md",
   "LICENSE",
   "SECURITY.md"
+];
+
+const DISALLOWED_PACKAGE_FILES = [
+  "dist/src/**/*.d.ts",
+  "dist/src/**/*.js",
+  "dist/src/release-lint.d.ts",
+  "dist/src/release-lint.js",
+  "dist/src/run-tests.d.ts",
+  "dist/src/run-tests.js",
+  "dist/src/shapelex-agent-adoption-eval.d.ts",
+  "dist/src/shapelex-agent-adoption-eval.js",
+  "dist/src/shapelex-benchmark.d.ts",
+  "dist/src/shapelex-benchmark.js",
+  "dist/src/shapelex-e2e-eval.d.ts",
+  "dist/src/shapelex-e2e-eval.js",
+  "dist/src/shapelex-smoke-eval.d.ts",
+  "dist/src/shapelex-smoke-eval.js"
 ];
 
 const SECRET_OR_LOCAL_PATTERNS = [
@@ -85,6 +106,11 @@ function checkPackageMetadata() {
   for (const required of REQUIRED_PACKAGE_FILES) {
     if (!packageJson.files.includes(required)) {
       failures.push(`package.json files allowlist is missing ${required}`);
+    }
+  }
+  for (const disallowed of DISALLOWED_PACKAGE_FILES) {
+    if (packageJson.files.includes(disallowed)) {
+      failures.push(`package.json files allowlist must not ship development file or glob ${disallowed}`);
     }
   }
   if (packageJson.repository?.url !== "git+https://github.com/AldoDior/shapelex.git") {

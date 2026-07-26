@@ -22,6 +22,14 @@ test("shared MCP configs use lean ShapeLex toolset and private local stores", ()
 
 test("package metadata is ready for public npm and GitHub", () => {
   const packageJson = JSON.parse(fs.readFileSync("package.json", "utf8"));
+  const requiredRuntimeFiles = [
+    "dist/src/mcp-server.d.ts",
+    "dist/src/mcp-server.js",
+    "dist/src/shapelex-doctor.d.ts",
+    "dist/src/shapelex-doctor.js",
+    "dist/src/shapelex.d.ts",
+    "dist/src/shapelex.js"
+  ];
 
   assert.equal(packageJson.license, "MIT");
   assert.equal(packageJson.repository.type, "git");
@@ -30,6 +38,11 @@ test("package metadata is ready for public npm and GitHub", () => {
   assert.equal(packageJson.publishConfig.access, "public");
   assert.ok(packageJson.files.includes("CHANGELOG.md"));
   assert.ok(packageJson.files.includes("CONTRIBUTING.md"));
+  for (const runtimeFile of requiredRuntimeFiles) {
+    assert.ok(packageJson.files.includes(runtimeFile), runtimeFile);
+  }
+  assert.equal(packageJson.files.includes("dist/src/**/*.d.ts"), false);
+  assert.equal(packageJson.files.includes("dist/src/**/*.js"), false);
 });
 
 test("agent instructions make ShapeLex agent-driven while keeping manual fallback", () => {
