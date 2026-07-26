@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.5.0 - 2026-07-26
+
 - Added cumulative per-session compression telemetry with an explicit heuristic-estimator label.
 - Removed opaque word-shape and fingerprint data from model-facing compression results while keeping the signals available internally.
 - Added truncation and source-offset metadata so critical previews no longer imply exactness when shortened.
