@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { ShapeLexEngine, charShape, estimateTokens, fingerprintTokens } from "../src/shapelex.js";
-import { createJsonRpcHandler, handleJsonRpc } from "../src/mcp-server.js";
+import { createEngineFromEnvironment, createJsonRpcHandler, handleJsonRpc } from "../src/mcp-server.js";
 
 test("charShape is stable for identifiers and mixed case", () => {
   const shape = charShape("validateChargebackTransaction");
@@ -36,6 +36,32 @@ test("compressText creates expandable handles for long spans", () => {
     .map((handle) => engine.expand({ sessionId: "s1", handle: handle.uri }).text)
     .join(" ");
   assert.equal(expanded, text.trim());
+});
+
+test("model-facing compression omits server-only shapes and fingerprints", () => {
+  const engine = new ShapeLexEngine();
+  const compressed = engine.compressText({
+    sessionId: "public-metadata",
+    text: "Do not approve invoice 4815 before settlement. ".repeat(20)
+  });
+
+  assert.equal("shapes" in compressed.handles[0], false);
+  assert.equal("fingerprints" in compressed.handles[0], false);
+  assert.equal("fingerprints" in compressed.levels[2], false);
+  assert.equal(compressed.compressedText.includes(" fp="), false);
+});
+
+test("critical extract previews disclose truncation and source offsets", () => {
+  const engine = new ShapeLexEngine();
+  const text = `Do not approve this operation before review because ${"detail ".repeat(80)}.`;
+  const compressed = engine.compressText({ sessionId: "critical-preview", text });
+  const extract = compressed.levels[3].criticalExtracts[0];
+
+  assert.equal(extract.exact, false);
+  assert.equal(extract.truncated, true);
+  assert.equal(extract.sourceStart, 0);
+  assert.equal(extract.sourceEnd, text.length);
+  assert.ok(extract.text.endsWith("..."));
 });
 
 test("compressText skips compression when metadata would cost more tokens", () => {
@@ -84,6 +110,104 @@ test("persistent storage restores expandable handles across engine instances", (
   assert.equal(second.stats({ sessionId: "persist" }).activeHandles, compressed.handles.length);
 });
 
+test("file-backed compression expands exact workspace content without storing a full duplicate", () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "shapelex-file-workspace-"));
+  const storageDir = path.join(workspaceRoot, ".shapelex");
+  const sourceDir = path.join(workspaceRoot, "src");
+  const sourcePath = path.join(sourceDir, "policy.ts");
+  const text = [
+    "export function canApprove(total: number) {",
+    "  // Historical explanation with unicode: acción segura.",
+    "  return total <= 4815;",
+    "}",
+    "",
+    "Neutral background context. ".repeat(50)
+  ].join("\r\n");
+  fs.mkdirSync(sourceDir);
+  fs.writeFileSync(sourcePath, text, "utf8");
+
+  const first = new ShapeLexEngine({ storageDir, workspaceRoot });
+  const compressed = first.compressFile({
+    sessionId: "file-backed",
+    sourcePath: "src/policy.ts"
+  });
+
+  assert.equal(compressed.source.kind, "file");
+  assert.equal(compressed.source.relativePath, "src/policy.ts");
+  assert.equal(compressed.mode, "code");
+  assert.equal(first.expand({ sessionId: "file-backed", handle: compressed.uri }).text, text);
+  assert.equal(first.stats({ sessionId: "file-backed" }).approxMemoryBytes, 0);
+  assert.equal(
+    first.stats({ sessionId: "file-backed" }).referencedSourceBytes,
+    Buffer.byteLength(text, "utf8")
+  );
+
+  const persistedStore = fs.readFileSync(path.join(storageDir, "shapelex-store.json"), "utf8");
+  assert.equal(persistedStore.includes(text), false);
+  assert.equal(persistedStore.includes("\n"), false);
+
+  const second = new ShapeLexEngine({ storageDir, workspaceRoot });
+  assert.equal(second.expand({ sessionId: "file-backed", handle: compressed.uri }).text, text);
+  const restoredLevel4 = second.retrieve({
+    sessionId: "file-backed",
+    uri: compressed.uri,
+    level: 4
+  });
+  assert.equal(restoredLevel4.levels["4"].handles.length, compressed.handles.length);
+  const restoredSpan = second.expand({
+    sessionId: "file-backed",
+    handle: compressed.handles[0].uri
+  });
+  assert.equal(restoredSpan.metadata.label, "src/policy.ts");
+  assert.ok(text.includes(restoredSpan.text));
+});
+
+test("file-backed expansion rejects changed sources", () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "shapelex-file-change-"));
+  const sourcePath = path.join(workspaceRoot, "policy.txt");
+  fs.writeFileSync(sourcePath, "Do not approve invoice 4815 before settlement. ".repeat(20));
+  const engine = new ShapeLexEngine({ workspaceRoot });
+  const compressed = engine.compressFile({
+    sessionId: "file-change",
+    sourcePath: "policy.txt"
+  });
+
+  fs.appendFileSync(sourcePath, "\nChanged after registration.");
+
+  assert.throws(
+    () => engine.expand({ sessionId: "file-change", handle: compressed.uri }),
+    /source file changed after registration/
+  );
+  assert.throws(
+    () => engine.expand({ sessionId: "file-change", handle: compressed.handles[0].uri }),
+    /source file changed after registration/
+  );
+});
+
+test("file-backed compression rejects paths outside the workspace", () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "shapelex-file-boundary-"));
+  const outsideRoot = fs.mkdtempSync(path.join(os.tmpdir(), "shapelex-file-outside-"));
+  const outsidePath = path.join(outsideRoot, "private.txt");
+  fs.writeFileSync(outsidePath, "Private text outside the configured workspace.");
+  const engine = new ShapeLexEngine({ workspaceRoot });
+
+  assert.throws(
+    () => engine.compressFile({ sessionId: "boundary", sourcePath: outsidePath }),
+    /must stay inside the configured workspace root/
+  );
+});
+
+test("file-backed compression rejects non-UTF-8 files", () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "shapelex-file-encoding-"));
+  fs.writeFileSync(path.join(workspaceRoot, "binary.dat"), Buffer.from([0xff, 0xfe, 0xfd]));
+  const engine = new ShapeLexEngine({ workspaceRoot });
+
+  assert.throws(
+    () => engine.compressFile({ sessionId: "encoding", sourcePath: "binary.dat" }),
+    /valid UTF-8 text file/
+  );
+});
+
 test("stats report persistence strategy and configurable store limit", () => {
   const engine = new ShapeLexEngine({ storageDir: "local-store", maxStoreBytes: 2 * 1024 * 1024 });
   const stats = engine.stats();
@@ -91,6 +215,61 @@ test("stats report persistence strategy and configurable store limit", () => {
   assert.equal(stats.persistence.enabled, true);
   assert.equal(stats.persistence.maxStoreBytes, 2 * 1024 * 1024);
   assert.equal(stats.persistence.strategy, "single-json-file");
+});
+
+test("memory-only MCP mode creates no store or gitignore entry", () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "shapelex-memory-only-"));
+  const engine = createEngineFromEnvironment({
+    SHAPELEX_PERSIST: "0",
+    SHAPELEX_STORE_DIR: ".shapelex-should-not-exist"
+  }, workspaceRoot);
+
+  engine.compressText({
+    sessionId: "volatile",
+    text: "Long in-memory context that should never create a local store file. ".repeat(20)
+  });
+  const stats = engine.stats({ sessionId: "volatile" });
+
+  assert.equal(stats.persistence.enabled, false);
+  assert.equal(stats.persistence.strategy, "memory-only");
+  assert.equal(stats.persistence.storePath, undefined);
+  assert.equal(fs.existsSync(path.join(workspaceRoot, ".shapelex-should-not-exist")), false);
+  assert.equal(fs.existsSync(path.join(workspaceRoot, ".gitignore")), false);
+});
+
+test("usage telemetry is cumulative, explicit about estimates, and persistent", () => {
+  const storageDir = fs.mkdtempSync(path.join(os.tmpdir(), "shapelex-usage-"));
+  const first = new ShapeLexEngine({ storageDir });
+  first.compressText({ sessionId: "usage", text: "Historical context. ".repeat(80) });
+  first.compressText({ sessionId: "usage", text: "Short exact note." });
+
+  const firstStats = first.stats({ sessionId: "usage" });
+  assert.equal(firstStats.tokenAccounting.estimator, "shapelex-heuristic-v1");
+  assert.equal(firstStats.tokenAccounting.exact, false);
+  assert.equal(firstStats.tokenAccounting.usage.operations, 2);
+  assert.equal(firstStats.tokenAccounting.usage.skippedOperations, 1);
+
+  const second = new ShapeLexEngine({ storageDir });
+  const restored = second.stats({ sessionId: "usage" });
+  assert.equal(restored.tokenAccounting.usage.operations, 2);
+  assert.ok(restored.tokenAccounting.usage.rawTokens > restored.tokenAccounting.usage.compressedTokens);
+});
+
+test("persistent writes enforce the configured store limit and clean temporary files", () => {
+  const storageDir = fs.mkdtempSync(path.join(os.tmpdir(), "shapelex-limit-"));
+  const engine = new ShapeLexEngine({ storageDir, maxStoreBytes: 1024 * 1024 });
+  const text = "Do not persist this oversized payload 12345. ".repeat(18_000);
+
+  assert.throws(
+    () => engine.compressText({ sessionId: "oversized", text }),
+    /would exceed the configured maximum size/
+  );
+  assert.equal(
+    fs.readdirSync(storageDir).some((name) => name.endsWith(".tmp")),
+    false
+  );
+  assert.equal(engine.stats({ sessionId: "oversized" }).activeDocuments, 0);
+  assert.equal(engine.stats({ sessionId: "oversized" }).activeHandles, 0);
 });
 
 test("persistent storage protects ShapeLex stores in gitignore", () => {
@@ -199,6 +378,67 @@ test("MCP tools/list and tools/call expose compression", async () => {
 
   assert.equal(call.result.structuredContent.sessionId, "mcp");
   assert.ok(call.result.structuredContent.handles.length > 0);
+  assert.equal("levels" in call.result.structuredContent, false);
+  assert.equal("anchors" in call.result.structuredContent.handles[0], false);
+  assert.equal(call.result.content[0].text, call.result.structuredContent.compressedText);
+  assert.equal(call.result.content[0].text.includes("\"shapes\""), false);
+});
+
+test("MCP compression response stays smaller than the long raw input", async () => {
+  const engine = new ShapeLexEngine();
+  const handle = createJsonRpcHandler(engine);
+  const text = "Do not approve invoice 4815 before settlement. ".repeat(100);
+  const response = await handle({
+    jsonrpc: "2.0",
+    id: 200,
+    method: "tools/call",
+    params: {
+      name: "shapelex_compress_text",
+      arguments: { sessionId: "response-budget", text }
+    }
+  });
+
+  assert.ok(estimateTokens(JSON.stringify(response)) < estimateTokens(text));
+});
+
+test("MCP compression accepts workspace files without a separate tool schema", async () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "shapelex-mcp-file-"));
+  const sourcePath = path.join(workspaceRoot, "notes.md");
+  const text = "Do not publish release 4815 before approval. ".repeat(30);
+  fs.writeFileSync(sourcePath, text);
+  const handle = createJsonRpcHandler(new ShapeLexEngine({ workspaceRoot }));
+
+  const compressed = await handle({
+    jsonrpc: "2.0",
+    id: 201,
+    method: "tools/call",
+    params: {
+      name: "shapelex_compress_text",
+      arguments: {
+        sessionId: "mcp-file",
+        sourcePath: "notes.md"
+      }
+    }
+  });
+
+  assert.equal(compressed.result.structuredContent.source.kind, "file");
+  assert.equal(compressed.result.structuredContent.source.relativePath, "notes.md");
+
+  const expanded = await handle({
+    jsonrpc: "2.0",
+    id: 202,
+    method: "tools/call",
+    params: {
+      name: "shapelex_expand",
+      arguments: {
+        sessionId: "mcp-file",
+        handle: compressed.result.structuredContent.uri
+      }
+    }
+  });
+
+  assert.equal(expanded.result.content[0].text, text);
+  assert.equal("text" in expanded.result.structuredContent, false);
 });
 
 test("MCP initialize instructs agents to use ShapeLex proactively", async () => {

@@ -168,9 +168,46 @@ ShapeLex gives agents a hierarchy:
 
 - Level 0: short summary.
 - Level 1: semantic map.
-- Level 2: anchors and fingerprints.
-- Level 3: exact critical extracts.
+- Level 2: model-readable anchors and protected terms. Internal fingerprints are not sent to the model.
+- Level 3: critical previews with explicit `exact`, `truncated`, and source-offset metadata.
 - Level 4: exact expandable handles.
+
+## Token Accounting
+
+ShapeLex records cumulative compression telemetry per memory session: estimated raw tokens, estimated compressed tokens, skipped operations, and estimated savings. The current built-in counter is identified as `shapelex-heuristic-v1` and is explicitly marked `exact: false`.
+
+These estimates are useful for deterministic local comparisons, but they are not provider billing data. A professional cost evaluation must also include model-specific token counts, tool schemas, tool arguments and results, expansions, cache reads and writes, native compaction, output tokens, and host-managed hidden context.
+
+`shapelex_memory_overview` and full-mode stats expose the current telemetry without adding another MCP tool schema.
+
+## File-Backed Memory
+
+When the source already exists in the workspace, pass `sourcePath` instead of copying the file into `text`:
+
+```json
+{
+  "sessionId": "my-project",
+  "sourcePath": "src/checkout.ts"
+}
+```
+
+ShapeLex analyzes the file and creates the same navigable memory, but stores file references and checksums instead of another full source copy. Expansion rereads the existing file and succeeds only while its checksum still matches. If the file changes, the old handle fails explicitly instead of returning stale content.
+
+Paths are resolved against `SHAPELEX_WORKSPACE_ROOT` or the MCP server working directory. Path traversal and symbolic links cannot escape that workspace boundary.
+
+Use `text` for transient pasted material and `sourcePath` for files already present in the project. Provide one, not both.
+
+### Storage choices
+
+Persistent memory remains the default so `sx://` handles survive MCP server restarts. The store is now written as a compact index. With `sourcePath`, that index contains checksums, byte ranges, navigation data, and risk metadata—not a second full copy of the source file.
+
+For work that must leave no ShapeLex store on disk, run the MCP server with:
+
+```text
+SHAPELEX_PERSIST=0
+```
+
+Memory-only mode creates no store directory or store file. Its tradeoff is deliberate: all handles disappear when the MCP server process stops, so files must be registered again after a restart.
 
 ## Privacy
 
@@ -215,7 +252,7 @@ Latest local run:
 
 - Smoke coding task: raw `2160` prompt tokens, ShapeLex `699`, about `67.6%` fewer prompt tokens, same required facts and decision.
 - End-to-end coding simulation: raw `6573` prompt tokens, ShapeLex lean `2148`, about `67.3%` fewer prompt tokens, same quality score.
-- End-to-end with full-mode tool schema included: `4722` loaded tokens, about `27.9%` fewer than raw.
+- End-to-end with full-mode tool schema included: `4800` loaded tokens, about `26.7%` fewer than raw.
 - Agent adoption simulation: ShapeLex was expected in `5` of `6` scenarios and selected in all `5`; it also suggested lean, full, session switch, and cleanup preview in the expected cases.
 
 Real savings depend on the size of the context, the active MCP toolset, the AI app, and whether the agent follows the project instructions. Small tasks may not save tokens, and ShapeLex should skip compression when the handle overhead would cost more than the original text.

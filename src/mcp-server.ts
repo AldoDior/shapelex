@@ -2,11 +2,17 @@ import process from "node:process";
 import readline from "node:readline";
 import { DEFAULT_MAX_STORE_BYTES, ShapeLexEngine } from "./shapelex.js";
 
-const engine = new ShapeLexEngine({
-  storageDir: process.env.SHAPELEX_STORE_DIR ?? ".shapelex",
-  persistent: process.env.SHAPELEX_PERSIST !== "0",
-  maxStoreBytes: maxStoreBytesFromEnv(process.env.SHAPELEX_MAX_STORE_MB)
-});
+export function createEngineFromEnvironment(environment: any = process.env, cwd = process.cwd()) {
+  const persistent = environment.SHAPELEX_PERSIST !== "0";
+  return new ShapeLexEngine({
+    storageDir: persistent ? environment.SHAPELEX_STORE_DIR ?? ".shapelex" : undefined,
+    persistent,
+    maxStoreBytes: maxStoreBytesFromEnv(environment.SHAPELEX_MAX_STORE_MB),
+    workspaceRoot: environment.SHAPELEX_WORKSPACE_ROOT ?? cwd
+  });
+}
+
+const engine = createEngineFromEnvironment();
 
 const defaultToolset = normalizeToolset(process.env.SHAPELEX_TOOLSET);
 const serverInstructions = [
@@ -59,17 +65,21 @@ const tools = [
   },
   {
     name: "shapelex_compress_text",
-    description: "Agent-driven: compress long text/code/docs/logs into sx:// handles.",
+    description: "Agent-driven: compress long text or a workspace file into sx:// handles.",
     inputSchema: {
       type: "object",
       properties: {
         sessionId: { type: "string" },
         text: { type: "string" },
+        sourcePath: { type: "string" },
         label: { type: "string" },
         mode: { type: "string", enum: ["text", "doc", "message", "code"] },
         budgetTokens: { type: "number" }
       },
-      required: ["text"],
+      oneOf: [
+        { required: ["text"] },
+        { required: ["sourcePath"] }
+      ],
       additionalProperties: false
     }
   },
@@ -261,7 +271,9 @@ function callTool(targetEngine: ShapeLexEngine, activeTools: any[], params: any)
       result = targetEngine.compressMessages(args);
       break;
     case "shapelex_compress_text":
-      result = targetEngine.compressText(args);
+      result = args.sourcePath === undefined
+        ? targetEngine.compressText(args)
+        : targetEngine.compressFile(args);
       break;
     case "shapelex_expand":
       result = targetEngine.expand(args);
@@ -289,10 +301,80 @@ function callTool(targetEngine: ShapeLexEngine, activeTools: any[], params: any)
     content: [
       {
         type: "text",
-        text: JSON.stringify(result, null, 2)
+        text: renderToolText(name, result)
       }
     ],
-    structuredContent: result
+    structuredContent: renderStructuredContent(name, result)
+  };
+}
+
+function renderToolText(name: string, result: any) {
+  if (name === "shapelex_compress_text" || name === "shapelex_compress_messages") {
+    return String(result.compressedText ?? JSON.stringify(result));
+  }
+  if (name === "shapelex_context") {
+    return String(result.contextText ?? JSON.stringify(result));
+  }
+  if (name === "shapelex_expand") {
+    return String(result.text ?? JSON.stringify(result));
+  }
+  return JSON.stringify(result, null, 2);
+}
+
+function renderStructuredContent(name: string, result: any) {
+  if (name === "shapelex_compress_text" || name === "shapelex_compress_messages") {
+    return {
+      sessionId: result.sessionId,
+      documentId: result.documentId,
+      uri: result.uri,
+      label: result.label,
+      mode: result.mode,
+      source: result.source,
+      compressedText: result.compressedText,
+      handles: (result.levels?.[4]?.handles ?? []).map((handle: any) => ({
+        uri: handle.uri,
+        mustExpand: Boolean(handle.risk?.mustExpand)
+      })),
+      risk: compactRisk(result.risk),
+      tokenAccounting: result.tokenAccounting,
+      rawTokenEstimate: result.rawTokenEstimate,
+      compressedTokenEstimate: result.compressedTokenEstimate,
+      savingsRatio: result.savingsRatio,
+      compressionSkipped: Boolean(result.compressionSkipped),
+      skipReason: result.skipReason,
+      budgetTokens: result.budgetTokens,
+      withinBudget: result.withinBudget
+    };
+  }
+  if (name === "shapelex_context") {
+    return {
+      sessionId: result.sessionId,
+      query: result.query,
+      detail: result.detail,
+      results: result.results,
+      contextText: result.contextText,
+      tokenEstimate: result.tokenEstimate,
+      guidance: result.guidance
+    };
+  }
+  if (name === "shapelex_expand") {
+    return {
+      handle: result.handle,
+      metadata: result.metadata
+    };
+  }
+  return result;
+}
+
+function compactRisk(risk: any) {
+  if (!risk || typeof risk !== "object") {
+    return risk;
+  }
+  return {
+    level: risk.level,
+    mustExpand: Boolean(risk.mustExpand),
+    shouldExpand: Boolean(risk.shouldExpand),
+    reasons: risk.reasons
   };
 }
 

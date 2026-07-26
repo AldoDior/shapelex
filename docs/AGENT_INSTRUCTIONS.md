@@ -6,6 +6,8 @@ Use this as a persistent project instruction in Codex, Claude Code, Cursor, or a
 
 ShapeLex should be agent-driven by default. Use ShapeLex proactively for long pasted context, repeated project notes, older conversation history, large docs, logs, or code snippets. Do not wait for me to say "use ShapeLex".
 
+When relevant content already exists in a workspace file, prefer `shapelex_compress_text` with `sourcePath` instead of sending the file again as `text`. This keeps exact expansion checksum-verified without storing another full source copy.
+
 Briefly tell me the first time you use ShapeLex in a session, for example: "I am going to compress older context with ShapeLex to keep this session lighter." Do not repeat this for every ShapeLex call.
 
 Use one readable `sessionId` per project or task. Start with `shapelex_memory_overview` when memory state matters. Use `shapelex_context` before reloading old memory into the prompt. Expand `sx://` handles before relying on exact wording, numbers, dates, negations, user instructions, code, errors, commands, or decisions. If ShapeLex says compression was skipped, use the exact returned text instead of forcing handles.

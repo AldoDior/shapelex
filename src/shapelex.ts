@@ -12,6 +12,8 @@ const MAX_LABEL_CHARS = 200;
 const LONG_SPAN_CHARS = 240;
 const RECENT_MESSAGE_CHARS = 900;
 const MIN_TOKEN_SAVINGS_RATIO = 0.15;
+const TOKEN_ESTIMATOR_ID = "shapelex-heuristic-v1";
+const MAX_USAGE_EVENTS_PER_SESSION = 500;
 const MAX_ANCHORS = 12;
 const CONTEXT_RADIUS = 90;
 const SESSION_ID_PATTERN = /^[A-Za-z0-9._-]{1,80}$/;
@@ -46,18 +48,25 @@ export class ShapeLexEngine {
   storageDir?: string;
   storePath?: string;
   gitignoreProtection?: any;
+  workspaceRoot: string;
+  workspaceRootReal: string;
 
   constructor({
     storageDir,
     persistent = Boolean(storageDir),
-    maxStoreBytes = DEFAULT_MAX_STORE_BYTES
-  }: { storageDir?: string; persistent?: boolean; maxStoreBytes?: number } = {}) {
+    maxStoreBytes = DEFAULT_MAX_STORE_BYTES,
+    workspaceRoot = process.cwd()
+  }: { storageDir?: string; persistent?: boolean; maxStoreBytes?: number; workspaceRoot?: string } = {}) {
     this.sessions = new Map();
     this.persistent = persistent;
     this.maxStoreBytes = normalizeMaxStoreBytes(maxStoreBytes);
-    this.storageDir = storageDir ? path.resolve(storageDir) : undefined;
+    this.workspaceRoot = path.resolve(workspaceRoot);
+    this.workspaceRootReal = fs.realpathSync(this.workspaceRoot);
+    this.storageDir = this.persistent && storageDir ? path.resolve(storageDir) : undefined;
     this.storePath = this.storageDir ? path.join(this.storageDir, DEFAULT_STORE_FILE) : undefined;
-    this.gitignoreProtection = protectLocalStoreWithGitignore(this.storageDir);
+    this.gitignoreProtection = this.persistent
+      ? protectLocalStoreWithGitignore(this.storageDir)
+      : { status: "not-needed", reason: "memory-only" };
     this.#loadStore();
   }
 
@@ -72,12 +81,62 @@ export class ShapeLexEngine {
     return this.compressText({ ...input, mode });
   }
 
-  compressText({ sessionId = DEFAULT_SESSION_ID, text, label = "text", mode = "text", budgetTokens }: any = {}) {
+  compressText(input: any = {}) {
+    return this.#compressText(input);
+  }
+
+  compressFile({
+    sessionId = DEFAULT_SESSION_ID,
+    sourcePath,
+    label,
+    mode,
+    budgetTokens,
+    text
+  }: any = {}) {
+    if (text !== undefined) {
+      throw new TypeError("Provide sourcePath or text, not both");
+    }
+    assertString(sourcePath, "sourcePath");
+    const source = this.#resolveWorkspaceFile(sourcePath);
+    const fileBuffer = fs.readFileSync(source.absolutePath);
+    const fileText = fileBuffer.toString("utf8");
+    if (!Buffer.from(fileText, "utf8").equals(fileBuffer)) {
+      throw new Error("ShapeLex sourcePath must reference a valid UTF-8 text file");
+    }
+    assertBoundedString(fileText, "source file", MAX_TEXT_CHARS);
+    const normalizedMode = mode === undefined ? inferFileMode(source.relativePath) : mode;
+    return this.#compressText({
+      sessionId,
+      text: fileText,
+      label: label ?? source.relativePath,
+      mode: normalizedMode,
+      budgetTokens
+    }, {
+      kind: "file",
+      relativePath: source.relativePath,
+      byteLength: fileBuffer.length
+    });
+  }
+
+  #compressText(
+    { sessionId = DEFAULT_SESSION_ID, text, label = "text", mode = "text", budgetTokens }: any = {},
+    fileSource?: any
+  ) {
     assertBoundedString(text, "text", MAX_TEXT_CHARS);
     const normalizedMode = normalizeTextMode(mode);
     const normalizedLabel = normalizeLabel(label);
     const session = this.#session(sessionId);
+    const transaction = sessionTransactionSnapshot(session);
     const document = this.#createDocument(session, { text, label: normalizedLabel, mode: normalizedMode });
+    if (fileSource) {
+      try {
+        this.#convertDocumentToFileBacked(session, document, fileSource);
+      } catch (error) {
+        rollbackDocumentTransaction(session, document, transaction);
+        throw error;
+      }
+    }
+    document.handles = document.handles.map(publicHandleMetadata);
     const compressedText = renderNavigableDocument(document);
     const payload = resultPayload(session.id, compressedText, document.handles, text);
 
@@ -90,7 +149,8 @@ export class ShapeLexEngine {
       risk: document.risk,
       confidence: document.confidence,
       code: document.code,
-      conversation: document.conversation
+      conversation: document.conversation,
+      source: document.source
     });
 
     if (Number.isFinite(budgetTokens)) {
@@ -98,7 +158,15 @@ export class ShapeLexEngine {
       payload.withinBudget = payload.compressedTokenEstimate <= budgetTokens;
     }
 
-    return applyCompressionPolicy(payload, text);
+    const result = applyCompressionPolicy(payload, text);
+    this.#recordCompressionUsage(session, result, text, "text");
+    try {
+      this.#saveStore();
+    } catch (error) {
+      rollbackDocumentTransaction(session, document, transaction);
+      throw error;
+    }
+    return result;
   }
 
   compressMessages({ sessionId = DEFAULT_SESSION_ID, messages, budgetTokens, label = "conversation" }: any = {}) {
@@ -113,12 +181,14 @@ export class ShapeLexEngine {
       .join("\n\n");
     assertBoundedString(text, "messages", MAX_TEXT_CHARS);
     const session = this.#session(sessionId);
+    const transaction = sessionTransactionSnapshot(session);
     const document = this.#createDocument(session, {
       text,
       label: normalizedLabel,
       mode: "conversation",
       messages
     });
+    document.handles = document.handles.map(publicHandleMetadata);
 
     const compressedMessages = messages.map((message, index) => {
       const role = String(message.role ?? "unknown");
@@ -130,9 +200,9 @@ export class ShapeLexEngine {
         return `[${role}#${index}] ${content.trim()}`;
       }
 
-      const span = document.spans.find((item) => item.metadata.index === index);
-      if (span && (!isLatest || content.length > threshold)) {
-        return `[${role}#${index}] ${renderHandle(span.metadata)}`;
+      const handle = document.handles.find((item) => item.index === index);
+      if (handle && (!isLatest || content.length > threshold)) {
+        return `[${role}#${index}] ${renderHandle(handle)}`;
       }
       return `[${role}#${index}] ${content.trim()}`;
     });
@@ -159,7 +229,15 @@ export class ShapeLexEngine {
       payload.withinBudget = payload.compressedTokenEstimate <= budgetTokens;
     }
 
-    return applyCompressionPolicy(payload, text);
+    const result = applyCompressionPolicy(payload, text);
+    this.#recordCompressionUsage(session, result, text, "conversation");
+    try {
+      this.#saveStore();
+    } catch (error) {
+      rollbackDocumentTransaction(session, document, transaction);
+      throw error;
+    }
+    return result;
   }
 
   expand({ sessionId = DEFAULT_SESSION_ID, handle }: any): any {
@@ -177,18 +255,22 @@ export class ShapeLexEngine {
       if (!document) {
         throw new Error(`Unknown ShapeLex document: ${handle}`);
       }
-      assertDocumentIntegrity(document, handle);
+      const documentText = document.source?.kind === "file"
+        ? this.#readFileDocument(document.source, handle)
+        : document.text;
+      assertDocumentIntegrity(document, handle, documentText);
       session.lastAccessedAt = new Date().toISOString();
       return {
         handle,
-        text: document.text,
+        text: documentText,
         metadata: {
           documentId: document.id,
           uri: document.uri,
           label: document.label,
           mode: document.mode,
           checksum: document.checksum,
-          risk: document.risk
+          risk: document.risk,
+          source: document.source
         }
       };
     }
@@ -197,13 +279,19 @@ export class ShapeLexEngine {
     if (!span) {
       throw new Error(`Unknown ShapeLex handle: ${handle}`);
     }
-    assertSpanIntegrity(span, handle);
+    const spanText = span.source?.kind === "file"
+      ? this.#readFileSpan(span.source, handle)
+      : span.text;
+    assertSpanIntegrity(span, handle, spanText);
 
     session.lastAccessedAt = new Date().toISOString();
     return {
       handle,
-      text: span.text,
-      metadata: span.metadata
+      text: spanText,
+      metadata: {
+        ...publicHandleMetadata(span.metadata),
+        source: span.source
+      }
     };
   }
 
@@ -270,7 +358,7 @@ export class ShapeLexEngine {
     const levels = {};
     for (const key of ["0", "1", "2", "3", "4"]) {
       if (Number(key) <= normalizedLevel) {
-        levels[key] = document.levels[key];
+        levels[key] = sanitizeResourcePayload(document.levels[key]);
       }
     }
 
@@ -466,7 +554,9 @@ export class ShapeLexEngine {
       lastAccessedAt: session.lastAccessedAt,
       activeDocuments: session.documents.size,
       activeHandles: session.spans.size,
-      approxMemoryBytes: [...session.spans.values()].reduce((sum, span) => sum + Buffer.byteLength(span.text, "utf8"), 0)
+      approxMemoryBytes: storedSpanBytes(session),
+      referencedSourceBytes: referencedSourceBytes(session),
+      usage: summarizeUsageEvents(session.usageEvents ?? [])
     }));
 
     return {
@@ -474,11 +564,18 @@ export class ShapeLexEngine {
       activeDocuments: sessionStats.reduce((sum, item) => sum + item.activeDocuments, 0),
       activeHandles: sessionStats.reduce((sum, item) => sum + item.activeHandles, 0),
       approxMemoryBytes: sessionStats.reduce((sum, item) => sum + item.approxMemoryBytes, 0),
+      referencedSourceBytes: sessionStats.reduce((sum, item) => sum + item.referencedSourceBytes, 0),
+      tokenAccounting: {
+        estimator: TOKEN_ESTIMATOR_ID,
+        exact: false,
+        note: "Counts are deterministic estimates, not provider-billed tokens. Record provider-reported usage separately when available.",
+        usage: summarizeUsageEvents(sessions.flatMap((session) => session.usageEvents ?? []))
+      },
       persistence: {
         enabled: this.persistent,
         storePath: this.storePath,
         maxStoreBytes: this.maxStoreBytes,
-        strategy: "single-json-file",
+        strategy: this.persistent ? "single-json-file" : "memory-only",
         gitignoreProtection: this.gitignoreProtection
       }
     };
@@ -495,7 +592,8 @@ export class ShapeLexEngine {
       lastUsed: session.lastAccessedAt,
       documents: session.documents.size,
       handles: session.spans.size,
-      approxMemoryBytes: [...session.spans.values()].reduce((sum, span) => sum + Buffer.byteLength(span.text, "utf8"), 0),
+      approxMemoryBytes: storedSpanBytes(session),
+      referencedSourceBytes: referencedSourceBytes(session),
       labels: [...session.documents.values()].map((document) => document.label).slice(0, 6)
     }));
 
@@ -523,6 +621,11 @@ export class ShapeLexEngine {
         ? `You are using ShapeLex memory session "${id}". It has ${current.documents.size} document(s) and ${current.spans.size} expandable handle(s).`
         : `You are using session name "${id}", but it does not have stored memory yet.`,
       sessions: sessionSummaries,
+      tokenAccounting: {
+        estimator: TOKEN_ESTIMATOR_ID,
+        exact: false,
+        currentSession: summarizeUsageEvents(current?.usageEvents ?? [])
+      },
       suggestions,
       cleanupExamples: {
         previewOldSessions: { olderThanDays: 14, dryRun: true },
@@ -621,7 +724,8 @@ export class ShapeLexEngine {
         nextDocument: 1,
         documents: new Map(),
         spans: new Map(),
-        spanToDocument: new Map()
+        spanToDocument: new Map(),
+        usageEvents: []
       };
       this.sessions.set(id, session);
     }
@@ -640,7 +744,6 @@ export class ShapeLexEngine {
       text,
       checksum: shortHash(text, 24),
       createdAt: new Date().toISOString(),
-      spans: [],
       handles: [],
       messages
     };
@@ -658,11 +761,10 @@ export class ShapeLexEngine {
         mode
       });
       document.handles.push(metadata);
-      document.spans.push({ text: sourceSpan.text, metadata });
     }
 
-    const anchors = unique(document.spans.flatMap((span) => span.metadata.anchors)).slice(0, MAX_ANCHORS);
-    const protectedTerms = unique(document.spans.flatMap((span) => span.metadata.protectedTerms));
+    const anchors = unique(document.handles.flatMap((handle) => handle.anchors)).slice(0, MAX_ANCHORS);
+    const protectedTerms = unique(document.handles.flatMap((handle) => handle.protectedTerms));
     const criticalExtracts = extractCriticalExtracts(text);
     const code = mode === "code" ? analyzeCode(text, document) : undefined;
     const conversation = mode === "conversation" ? analyzeConversation(messages ?? text, document) : undefined;
@@ -675,8 +777,127 @@ export class ShapeLexEngine {
     document.levels = buildLevels(document, { anchors, protectedTerms, criticalExtracts, code, conversation });
 
     session.documents.set(document.id, document);
-    this.#saveStore();
     return document;
+  }
+
+  #recordCompressionUsage(session: any, result: any, rawText: string, kind: string) {
+    const event = {
+      timestamp: new Date().toISOString(),
+      operation: kind === "conversation" ? "compress_messages" : "compress_text",
+      estimator: TOKEN_ESTIMATOR_ID,
+      exact: false,
+      rawCharacters: String(rawText ?? "").length,
+      compressedCharacters: String(result.compressedText ?? "").length,
+      rawTokens: result.rawTokenEstimate,
+      compressedTokens: result.compressedTokenEstimate,
+      tokenDelta: Math.max(0, result.rawTokenEstimate - result.compressedTokenEstimate),
+      savingsRatio: result.savingsRatio,
+      compressionSkipped: Boolean(result.compressionSkipped)
+    };
+    session.usageEvents = [...(session.usageEvents ?? []), event].slice(-MAX_USAGE_EVENTS_PER_SESSION);
+  }
+
+  #convertDocumentToFileBacked(session: any, document: any, fileSource: any) {
+    const sourceText = document.text;
+    let searchOffset = 0;
+
+    for (const handle of document.handles) {
+      const span = session.spans.get(handle.spanId);
+      if (!span || typeof span.text !== "string") {
+        throw new Error(`ShapeLex could not create a file-backed source for ${handle.uri}`);
+      }
+      let matchedText = span.text;
+      let startChar = sourceText.indexOf(matchedText, searchOffset);
+      if (startChar < 0 && matchedText.includes("\n")) {
+        const crlfText = matchedText.replace(/\n/g, "\r\n");
+        const crlfStart = sourceText.indexOf(crlfText, searchOffset);
+        if (crlfStart >= 0) {
+          matchedText = crlfText;
+          startChar = crlfStart;
+        }
+      }
+      if (startChar < 0) {
+        throw new Error(`ShapeLex could not locate span content in ${fileSource.relativePath}`);
+      }
+      const endChar = startChar + matchedText.length;
+      const startByte = Buffer.byteLength(sourceText.slice(0, startChar), "utf8");
+      const endByte = startByte + Buffer.byteLength(matchedText, "utf8");
+      const spanChecksum = shortHash(matchedText, 24);
+      handle.checksum = spanChecksum;
+      handle.charLength = matchedText.length;
+      handle.tokenEstimate = estimateTokens(matchedText);
+      span.source = {
+        kind: "file",
+        relativePath: fileSource.relativePath,
+        startByte,
+        endByte,
+        checksum: spanChecksum,
+        documentChecksum: document.checksum
+      };
+      delete span.metadata.shapes;
+      delete span.metadata.fingerprints;
+      delete span.text;
+      searchOffset = endChar;
+    }
+
+    document.source = {
+      kind: "file",
+      relativePath: fileSource.relativePath,
+      encoding: "utf8",
+      byteLength: fileSource.byteLength,
+      checksum: document.checksum
+    };
+    delete document.text;
+  }
+
+  #resolveWorkspaceFile(sourcePath: string) {
+    const candidate = path.isAbsolute(sourcePath)
+      ? path.resolve(sourcePath)
+      : path.resolve(this.workspaceRootReal, sourcePath);
+    if (!fs.existsSync(candidate)) {
+      throw new Error(`ShapeLex source file does not exist: ${sourcePath}`);
+    }
+    const absolutePath = fs.realpathSync(candidate);
+    const relativePath = path.relative(this.workspaceRootReal, absolutePath);
+    if (!relativePath || relativePath === ".") {
+      throw new Error("ShapeLex sourcePath must identify a file inside the workspace");
+    }
+    if (path.isAbsolute(relativePath) || relativePath.startsWith(`..${path.sep}`) || relativePath === "..") {
+      throw new Error("ShapeLex sourcePath must stay inside the configured workspace root");
+    }
+    const stat = fs.statSync(absolutePath);
+    if (!stat.isFile()) {
+      throw new Error(`ShapeLex sourcePath is not a file: ${sourcePath}`);
+    }
+    return {
+      absolutePath,
+      relativePath: relativePath.split(path.sep).join("/")
+    };
+  }
+
+  #readFileDocument(source: any, handle: string) {
+    const resolved = this.#resolveWorkspaceFile(source.relativePath);
+    const fileBuffer = fs.readFileSync(resolved.absolutePath);
+    const text = fileBuffer.toString(source.encoding ?? "utf8");
+    const checksum = shortHash(text, 24);
+    if (checksum !== source.checksum) {
+      throw new Error(`ShapeLex source file changed after registration: ${handle}`);
+    }
+    return text;
+  }
+
+  #readFileSpan(source: any, handle: string) {
+    const resolved = this.#resolveWorkspaceFile(source.relativePath);
+    const fileBuffer = fs.readFileSync(resolved.absolutePath);
+    const documentText = fileBuffer.toString("utf8");
+    if (shortHash(documentText, 24) !== source.documentChecksum) {
+      throw new Error(`ShapeLex source file changed after registration: ${handle}`);
+    }
+    const text = fileBuffer.subarray(source.startByte, source.endByte).toString("utf8");
+    if (shortHash(text, 24) !== source.checksum) {
+      throw new Error(`ShapeLex file-backed span checksum mismatch: ${handle}`);
+    }
+    return text;
   }
 
   #storeSpan(session, document, span) {
@@ -741,15 +962,20 @@ export class ShapeLexEngine {
         nextDocument: item.nextDocument,
         documents: new Map(),
         spans: new Map(),
-        spanToDocument: new Map()
+        spanToDocument: new Map(),
+        usageEvents: Array.isArray(item.usageEvents) ? item.usageEvents.slice(-MAX_USAGE_EVENTS_PER_SESSION) : []
       };
 
       for (const document of item.documents ?? []) {
         session.documents.set(document.id, document);
       }
       for (const span of item.spans ?? []) {
+        hydrateStoredSpan(session, span, session.documents.get(span.metadata?.documentId));
         session.spans.set(span.metadata.spanId, span);
         session.spanToDocument.set(span.metadata.spanId, span.metadata.documentId);
+      }
+      for (const document of session.documents.values()) {
+        hydrateStoredDocument(session, document);
       }
       this.sessions.set(session.id, session);
     }
@@ -770,13 +996,26 @@ export class ShapeLexEngine {
         lastAccessedAt: session.lastAccessedAt,
         nextSpan: session.nextSpan,
         nextDocument: session.nextDocument,
-        documents: [...session.documents.values()],
-        spans: [...session.spans.values()]
+        documents: [...session.documents.values()].map(serializeDocumentForStore),
+        spans: [...session.spans.values()].map(serializeSpanForStore),
+        usageEvents: session.usageEvents ?? []
       }))
     };
     const tmpPath = `${this.storePath}.${process.pid}.tmp`;
-    fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2));
-    fs.renameSync(tmpPath, this.storePath);
+    const serialized = JSON.stringify(payload);
+    const storeBytes = Buffer.byteLength(serialized, "utf8");
+    if (storeBytes > this.maxStoreBytes) {
+      throw new Error(`ShapeLex store would exceed the configured maximum size (${storeBytes} > ${this.maxStoreBytes} bytes). Prune memory or raise SHAPELEX_MAX_STORE_MB.`);
+    }
+    try {
+      fs.writeFileSync(tmpPath, serialized, { encoding: "utf8", mode: 0o600 });
+      fs.renameSync(tmpPath, this.storePath);
+    } catch (error) {
+      if (fs.existsSync(tmpPath)) {
+        fs.rmSync(tmpPath, { force: true });
+      }
+      throw error;
+    }
   }
 }
 
@@ -881,8 +1120,7 @@ function buildLevels(document: any, { anchors, protectedTerms, criticalExtracts,
     },
     "2": {
       anchors,
-      protectedTerms,
-      fingerprints: unique(document.handles.flatMap((handle) => handle.fingerprints)).slice(0, MAX_ANCHORS)
+      protectedTerms
     },
     "3": {
       criticalExtracts
@@ -995,9 +1233,13 @@ function resultPayload(sessionId: any, compressedText: any, handles: any, rawTex
   return {
     sessionId,
     compressedText,
-    handles,
+    handles: handles.map(publicHandleMetadata),
     rawTokenEstimate,
     compressedTokenEstimate,
+    tokenAccounting: {
+      estimator: TOKEN_ESTIMATOR_ID,
+      exact: false
+    },
     savingsRatio: rawTokenEstimate === 0
       ? 0
       : Number((1 - compressedTokenEstimate / rawTokenEstimate).toFixed(4))
@@ -1028,8 +1270,169 @@ function applyCompressionPolicy(payload: any, rawText: any) {
 function renderHandle(handle: any) {
   const anchors = handle.anchors.length > 0 ? handle.anchors.join("|") : "none";
   const protectedTerms = handle.protectedTerms.length > 0 ? ` protect=${handle.protectedTerms.join("|")}` : "";
-  const fps = handle.fingerprints.slice(0, 4).join(",");
-  return `[${handle.uri} label=${handle.label} role=${handle.role} chars=${handle.charLength} tok~${handle.tokenEstimate} anchors=${anchors}${protectedTerms} risk=${handle.risk.level} fp=${fps}]`;
+  return `[${handle.uri} label=${handle.label} role=${handle.role} chars=${handle.charLength} tok~${handle.tokenEstimate} anchors=${anchors}${protectedTerms} risk=${handle.risk.level}]`;
+}
+
+function publicHandleMetadata(handle: any) {
+  return {
+    spanId: handle.spanId,
+    documentId: handle.documentId,
+    uri: handle.uri,
+    label: handle.label,
+    role: handle.role,
+    index: handle.index,
+    mode: handle.mode,
+    charLength: handle.charLength,
+    checksum: handle.checksum,
+    tokenEstimate: handle.tokenEstimate,
+    anchors: handle.anchors,
+    protectedTerms: handle.protectedTerms,
+    risk: handle.risk
+  };
+}
+
+function serializeDocumentForStore(document: any) {
+  const { handles: _handles, ...storedDocument } = document;
+  const level1 = { ...(document.levels?.["1"] ?? {}) };
+  const level4 = { ...(document.levels?.["4"] ?? {}) };
+  delete level1.code;
+  delete level1.conversation;
+  delete level4.handles;
+
+  return {
+    ...storedDocument,
+    levels: {
+      ...document.levels,
+      "1": level1,
+      "4": level4
+    }
+  };
+}
+
+function serializeSpanForStore(span: any) {
+  if (span.source?.kind !== "file") {
+    return span;
+  }
+
+  return {
+    metadata: {
+      spanId: span.metadata.spanId,
+      documentId: span.metadata.documentId,
+      index: span.metadata.index,
+      charLength: span.metadata.charLength,
+      checksum: span.metadata.checksum,
+      tokenEstimate: span.metadata.tokenEstimate,
+      anchors: span.metadata.anchors,
+      protectedTerms: span.metadata.protectedTerms,
+      risk: span.metadata.risk
+    },
+    source: {
+      kind: "file",
+      startByte: span.source.startByte,
+      endByte: span.source.endByte
+    }
+  };
+}
+
+function hydrateStoredSpan(session: any, span: any, document: any) {
+  if (!span?.metadata?.spanId || !span.metadata.documentId) {
+    throw new Error(`Corrupt ShapeLex span in session: ${session.id}`);
+  }
+  if (!document) {
+    throw new Error(`ShapeLex span references an unknown document: ${span.metadata.documentId}`);
+  }
+
+  span.metadata.uri ??= `sx://${session.id}/span/${span.metadata.spanId}`;
+  span.metadata.label ??= document.label;
+  span.metadata.role ??= document.mode;
+  span.metadata.mode ??= document.mode;
+  span.metadata.anchors ??= [];
+  span.metadata.protectedTerms ??= [];
+
+  if (span.source?.kind === "file") {
+    if (document.source?.kind !== "file") {
+      throw new Error(`ShapeLex file-backed span has no file-backed document: ${span.metadata.spanId}`);
+    }
+    span.source.relativePath ??= document.source.relativePath;
+    span.source.checksum ??= span.metadata.checksum;
+    span.source.documentChecksum ??= document.checksum;
+  }
+}
+
+function hydrateStoredDocument(session: any, document: any) {
+  const handles = [...session.spans.values()]
+    .filter((span) => span.metadata.documentId === document.id)
+    .map((span) => publicHandleMetadata(span.metadata))
+    .sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0));
+  document.handles = handles;
+  document.levels ??= {};
+  document.levels["1"] ??= { map: [] };
+  document.levels["2"] ??= { anchors: [], protectedTerms: [] };
+  document.levels["3"] ??= { criticalExtracts: [] };
+  document.levels["4"] ??= { documentHandle: document.uri };
+  if (document.code !== undefined) {
+    document.levels["1"].code = document.code;
+  }
+  if (document.conversation !== undefined) {
+    document.levels["1"].conversation = document.conversation;
+  }
+  document.levels["4"].handles = handles.map((handle) => ({
+    uri: handle.uri,
+    label: handle.label,
+    role: handle.role,
+    index: handle.index,
+    tokenEstimate: handle.tokenEstimate,
+    risk: handle.risk
+  }));
+}
+
+function sessionTransactionSnapshot(session: any) {
+  return {
+    nextSpan: session.nextSpan,
+    nextDocument: session.nextDocument,
+    usageEventCount: (session.usageEvents ?? []).length
+  };
+}
+
+function rollbackDocumentTransaction(session: any, document: any, snapshot: any) {
+  session.documents.delete(document.id);
+  for (const handle of document.handles ?? []) {
+    session.spans.delete(handle.spanId);
+    session.spanToDocument.delete(handle.spanId);
+  }
+  session.nextSpan = snapshot.nextSpan;
+  session.nextDocument = snapshot.nextDocument;
+  session.usageEvents = (session.usageEvents ?? []).slice(0, snapshot.usageEventCount);
+}
+
+function summarizeUsageEvents(events: any[]) {
+  const normalizedEvents = Array.isArray(events) ? events : [];
+  const rawTokens = normalizedEvents.reduce((sum, event) => sum + Number(event.rawTokens ?? 0), 0);
+  const compressedTokens = normalizedEvents.reduce((sum, event) => sum + Number(event.compressedTokens ?? 0), 0);
+  const tokenDelta = rawTokens - compressedTokens;
+  return {
+    operations: normalizedEvents.length,
+    rawTokens,
+    compressedTokens,
+    tokenDelta,
+    savingsRatio: rawTokens === 0 ? 0 : Number((1 - compressedTokens / rawTokens).toFixed(4)),
+    compressedOperations: normalizedEvents.filter((event) => !event.compressionSkipped).length,
+    skippedOperations: normalizedEvents.filter((event) => event.compressionSkipped).length
+  };
+}
+
+function storedSpanBytes(session: any) {
+  return [...session.spans.values()].reduce(
+    (sum, span) => sum + (typeof span.text === "string" ? Buffer.byteLength(span.text, "utf8") : 0),
+    0
+  );
+}
+
+function referencedSourceBytes(session: any) {
+  return [...session.documents.values()].reduce(
+    (sum, document) => sum + Number(document.source?.byteLength ?? 0),
+    0
+  );
 }
 
 function withInstruction(text) {
@@ -1087,11 +1490,17 @@ function extractCriticalExtracts(text) {
   const normalized = String(text ?? "").replace(/\r\n/g, "\n");
   const sentences = normalized.match(/[^.!?\n]+[.!?\n]+|[^.!?\n]+$/g) ?? [normalized];
   const extracts = [];
+  let searchOffset = 0;
 
   for (const sentence of sentences) {
     const trimmed = sentence.trim();
     if (!trimmed) {
       continue;
+    }
+    const sourceStart = normalized.indexOf(trimmed, searchOffset);
+    const sourceEnd = sourceStart >= 0 ? sourceStart + trimmed.length : undefined;
+    if (sourceEnd !== undefined) {
+      searchOffset = sourceEnd;
     }
     const tokens = tokenize(trimmed);
     const reasons = [];
@@ -1101,8 +1510,13 @@ function extractCriticalExtracts(text) {
     if (containsCodeSignal(trimmed)) reasons.push("code-signal");
     if (containsDecisionSignal(trimmed)) reasons.push("decision");
     if (reasons.length > 0) {
+      const preview = clampText(trimmed, 260);
       extracts.push({
-        text: clampText(trimmed, 260),
+        text: preview,
+        exact: preview === trimmed,
+        truncated: preview !== trimmed,
+        sourceStart: sourceStart >= 0 ? sourceStart : undefined,
+        sourceEnd,
         reasons: unique(reasons),
         tokenEstimate: estimateTokens(trimmed)
       });
@@ -1110,8 +1524,15 @@ function extractCriticalExtracts(text) {
   }
 
   if (extracts.length === 0 && normalized.trim()) {
+    const trimmed = normalized.trim();
+    const preview = clampText(trimmed, 220);
+    const sourceStart = normalized.indexOf(trimmed);
     extracts.push({
-      text: clampText(normalized.trim(), 220),
+      text: preview,
+      exact: preview === trimmed,
+      truncated: preview !== trimmed,
+      sourceStart,
+      sourceEnd: sourceStart + trimmed.length,
       reasons: ["orientation"],
       tokenEstimate: estimateTokens(normalized)
     });
@@ -1363,36 +1784,41 @@ function sanitizeResourcePayload(payload: any) {
   if (!payload || typeof payload !== "object") {
     return payload;
   }
-  if (payload.text && payload.spans) {
+  if (payload.levels && payload.handles && payload.checksum) {
     return {
       id: payload.id,
       uri: payload.uri,
       label: payload.label,
       mode: payload.mode,
       checksum: payload.checksum,
+      source: payload.source,
       levels: payload.levels,
       risk: payload.risk,
       confidence: payload.confidence
     };
   }
+  if (Array.isArray(payload.fingerprints)) {
+    const { fingerprints: _fingerprints, ...publicPayload } = payload;
+    return publicPayload;
+  }
   return payload;
 }
 
-function assertDocumentIntegrity(document: any, handle: any) {
+function assertDocumentIntegrity(document: any, handle: any, text = document.text) {
   if (!document.checksum) {
     return;
   }
-  const actual = shortHash(document.text, 24);
+  const actual = shortHash(text, 24);
   if (actual !== document.checksum) {
     throw new Error(`ShapeLex document checksum mismatch: ${handle}`);
   }
 }
 
-function assertSpanIntegrity(span: any, handle: any) {
+function assertSpanIntegrity(span: any, handle: any, text = span.text) {
   if (!span.metadata?.checksum) {
     return;
   }
-  const actual = shortHash(span.text, 24);
+  const actual = shortHash(text, 24);
   if (actual !== span.metadata.checksum) {
     throw new Error(`ShapeLex span checksum mismatch: ${handle}`);
   }
@@ -1583,6 +2009,17 @@ function normalizeTextMode(mode) {
     throw new TypeError("mode must be one of: text, doc, message, code");
   }
   return value === "doc" || value === "message" ? "text" : value;
+}
+
+function inferFileMode(relativePath: string) {
+  const extension = path.extname(relativePath).toLowerCase();
+  return new Set([
+    ".c", ".cc", ".cpp", ".cs", ".css", ".go", ".h", ".hpp", ".html",
+    ".java", ".js", ".jsx", ".mjs", ".php", ".py", ".rb", ".rs", ".sh",
+    ".sql", ".swift", ".ts", ".tsx", ".vue"
+  ]).has(extension)
+    ? "code"
+    : "doc";
 }
 
 function normalizeLabel(label) {

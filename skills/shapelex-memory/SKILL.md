@@ -14,7 +14,7 @@ ShapeLex primarily saves input tokens by replacing old context with searchable h
 ## Workflow
 
 1. Briefly tell the user the first time you use ShapeLex in a session, for example: "I am going to compress older context with ShapeLex to keep this session lighter." Do not repeat this for every tool call.
-2. Compress only long or repeated context. Use `shapelex_compress_text` for documents/code-like text and `shapelex_compress_messages` for older conversation history.
+2. Compress only long or repeated context. Use `shapelex_compress_text` for documents/code-like text and `shapelex_compress_messages` for older conversation history. Prefer `sourcePath` over `text` when the source already exists in the workspace.
 3. If a compression result has `compressionSkipped: true`, keep using the returned exact `compressedText`; do not force handles into the prompt.
 4. Use `shapelex_memory_overview` when starting work, when the user asks what memory/session is active, when switching projects, or when cleanup might be needed.
 5. Recommend lean mode for normal work. Suggest full mode only when the user needs lower-level search, retrieve, explain, risk, or stats actions that lean mode does not expose.

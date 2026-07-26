@@ -101,6 +101,8 @@ $env:SHAPELEX_PERSIST="0"
 npm start
 ```
 
+This mode creates no ShapeLex store directory or store file. Its handles are temporary and disappear when the MCP server stops.
+
 To raise the store safety limit from the default 100 MiB:
 
 ```powershell
@@ -300,7 +302,7 @@ If Cursor shows more ShapeLex tools than expected, set `SHAPELEX_TOOLSET` back t
 This is the agent's default workflow. The user can still ask manually, but the agent should not depend on that.
 
 1. Briefly tell the user the first time ShapeLex compresses context in a session.
-2. Use `shapelex_compress_text` for long text, docs, logs, or code-like snippets.
+2. Use `shapelex_compress_text` for long text, docs, logs, or code-like snippets. When the content already exists in the workspace, pass `sourcePath` instead of `text` so ShapeLex references the original file and validates its checksum without storing another full copy.
 3. Use `shapelex_compress_messages` for older conversation history.
 4. Use `shapelex_memory_overview` to see which session is active and whether cleanup is recommended.
 5. Suggest a new `sessionId` when the project, repo, client, feature, or task changes.

@@ -10,9 +10,11 @@ Open a private security advisory on GitHub if the repository is public. If priva
 
 ## Security Model
 
-ShapeLex is a local MCP server. It does not call external LLMs, embedding APIs, databases, or network services. It stores exact source text locally so agents can recover exact wording through `sx://` handles.
+ShapeLex is a local MCP server. It does not call external LLMs, embedding APIs, databases, or network services. Pasted text may be stored exactly so agents can recover exact wording through `sx://` handles. File-backed memory stores an index and rereads the existing workspace file instead of storing a second full source copy. Memory-only mode (`SHAPELEX_PERSIST=0`) writes no ShapeLex store.
 
 The local store can contain sensitive data. Treat `.shapelex/` as private user data and never commit, publish, or upload it.
+
+File-backed handles are restricted to the configured workspace root. ShapeLex resolves real filesystem paths before registration and expansion, rejects traversal outside the workspace, and verifies the original content checksum before returning text. Changed files invalidate their existing handles.
 
 ## Supply-Chain Posture
 
