@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 0.6.0 - 2026-07-28
+
+- Added deterministic Unicode-aware lexical fingerprints, 64-bit rolling hashes, O(n) winnowing, offset voting, and English/Spanish critical-difference protection.
+- Added a lazy, bounded, memory-only inverted index with explicit registration, stop-fingerprint suppression, LRU eviction, invalidation, and incomplete-search diagnostics.
+- Made raw-byte equality plus full SHA-256 verification the only path to an `exact` match.
+- Added exact source deduplication while preserving separate document and span `sx://` handles.
+- Added transactional store format v2 with v1 migration, revisions, bounded locks, atomic fsync/rename writes, and content-addressed sources.
+- Added compact match metadata to existing MCP results without adding another tool.
+- Corrected MCP/package version parity, JSON-RPC error codes, and resource capability reporting.
+- Raised the supported runtime to Node.js 22 or newer.
+- Added property, acceptance, torture, performance, platform, coverage, mutation, packaging, and security verification.
+- Added an offline protocol-token ledger and optional credentialed provider A/B evaluation.
+
 ## 0.5.0 - 2026-07-26
 
 - Added cumulative per-session compression telemetry with an explicit heuristic-estimator label.

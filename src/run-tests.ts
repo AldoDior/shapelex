@@ -4,10 +4,10 @@ import process from "node:process";
 import { spawnSync } from "node:child_process";
 
 const testDir = path.resolve("dist/test");
-const testFiles = fs.readdirSync(testDir)
-  .filter((name) => name.endsWith(".test.js"))
-  .sort()
-  .map((name) => path.join(testDir, name));
+const profile = process.env.SHAPELEX_TEST_PROFILE ?? "default";
+const testFiles = collectTestFiles(testDir)
+  .filter((file) => profile === "nightly" || !file.endsWith(".nightly.test.js"))
+  .sort();
 
 if (testFiles.length === 0) {
   console.error(`No compiled test files found in ${testDir}`);
@@ -19,3 +19,13 @@ const result = spawnSync(process.execPath, ["--test", ...testFiles], {
 });
 
 process.exitCode = result.status ?? 1;
+
+function collectTestFiles(directory: string): string[] {
+  return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const target = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      return collectTestFiles(target);
+    }
+    return entry.isFile() && entry.name.endsWith(".test.js") ? [target] : [];
+  });
+}

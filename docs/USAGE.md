@@ -4,6 +4,8 @@ ShapeLex is a local MCP server that stores exact source text in a private local 
 
 The local store is required because a handle is only a pointer. Without stored exact text, `shapelex_expand` could not recover the original words later.
 
+ShapeLex v0.6 uses a lazy in-memory lexical fingerprint index to recognize registered text without scanning your workspace. A fingerprint proposes a candidate; only equal UTF-8 bytes plus full SHA-256 verification produce an exact match. Similar matches are advisory and should be expanded when precision matters.
+
 ## What You Need
 
 You need:
@@ -17,7 +19,7 @@ You do not need an npm account to use ShapeLex. An npm account is only needed to
 ## Step 1: Install Node.js
 
 1. Go to [nodejs.org](https://nodejs.org/).
-2. Download the LTS version.
+2. Download Node.js 22 LTS or newer.
 3. Install it with the normal installer options.
 4. Close and reopen your terminal.
 
@@ -68,6 +70,8 @@ npm install
 npm run doctor
 npm test
 npm run build
+npm run typecheck:v06
+npm run coverage:v06
 ```
 
 Start the MCP server:
@@ -102,6 +106,8 @@ npm start
 ```
 
 This mode creates no ShapeLex store directory or store file. Its handles are temporary and disappear when the MCP server stops.
+
+The persistent v2 store keeps one exact content-addressed copy of duplicate pasted text. File-backed sources remain in the workspace and are not copied into the store. Fingerprint postings are never persisted.
 
 To raise the store safety limit from the default 100 MiB:
 
@@ -366,8 +372,8 @@ Latest measured example:
 - Raw prompt total: `6573` tokens.
 - ShapeLex lean prompt total: `2148` tokens.
 - Approximate lean prompt-token reduction: `67.3%`.
-- Full-mode loaded total, including tool schema: `4722` tokens.
-- Approximate full-mode loaded reduction versus raw: `27.9%`.
+- Full-mode loaded total, including tool schema: `4800` tokens.
+- Approximate full-mode loaded reduction versus raw: `26.7%`.
 - Raw quality score: `1.0`.
 - ShapeLex quality score: `1.0`.
 
@@ -429,9 +435,9 @@ ShapeLex stores exact source text locally. This is not cloud storage and ShapeLe
 
 ## Scaling Notes
 
-The current storage strategy is a single JSON file. It is simple, portable, and good enough for personal use and ordinary long sessions. It is not the final storage architecture for very large months-long memory.
+Store v2 uses one private transactional JSON file with revisions, an exclusive lock, checksum validation, fsync, and atomic replacement. Exact text sources are deduplicated, while the fingerprint postings remain disposable and memory-only. This keeps the local format inspectable and avoids adding a database dependency.
 
-For heavier use, the next storage upgrade should be one file per document/span or SQLite. That would avoid rewriting the entire store on every compression and scale better for many projects.
+Very large months-long stores still require measurement and may eventually need a pluggable storage backend. ShapeLex will not add SQLite or one-file-per-span persistence until reproducible workloads show that Store v2 is the limiting factor and a migration can preserve every existing `sx://` handle.
 
 ## Cleanup
 

@@ -1,6 +1,6 @@
 {
   "name": "shapelex-mcp",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Local MCP navigable memory for reducing LLM read-token usage.",
   "type": "module",
   "main": "./dist/src/shapelex.js",
@@ -16,12 +16,18 @@
   "files": [
     "bin/",
     "docs/",
+    "dist/src/fingerprint/*.d.ts",
+    "dist/src/fingerprint/*.js",
     "dist/src/mcp-server.d.ts",
     "dist/src/mcp-server.js",
     "dist/src/shapelex-doctor.d.ts",
     "dist/src/shapelex-doctor.js",
     "dist/src/shapelex.d.ts",
     "dist/src/shapelex.js",
+    "dist/src/storage/*.d.ts",
+    "dist/src/storage/*.js",
+    "dist/src/version.d.ts",
+    "dist/src/version.js",
     "skills/",
     "README.md",
     "CHANGELOG.md",
@@ -37,9 +43,19 @@
     "start": "npm run build && node ./bin/shapelex-mcp.js",
     "doctor": "npm run build && node ./bin/shapelex-mcp.js --doctor",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck:v06": "tsc -p tsconfig.strict.json",
     "lint": "npm run build && node ./dist/src/release-lint.js",
-    "check": "npm run doctor && npm run typecheck && npm run lint && npm test && npm run smoke && npm run e2e && npm run agent-eval && npm run benchmark",
+    "check": "npm run doctor && npm run typecheck && npm run typecheck:v06 && npm run lint && npm test && npm run coverage:global && npm run coverage:v06 && npm run smoke && npm run e2e && npm run agent-eval && npm run benchmark",
     "test": "npm run build && node ./dist/src/run-tests.js",
+    "test:v06": "npm run build && node --test dist/test/v06/*.test.js",
+    "test:v06:nightly": "npm run build && node --test --test-concurrency=1 dist/test/v06/*.test.js",
+    "test:v06:platform": "npm run build && node --test --test-concurrency=1 dist/test/shapelex.test.js dist/test/shapelex-v06-integration.test.js dist/test/store-v2*.test.js dist/test/v06/platform-determinism.test.js dist/test/v06/torture.nightly.test.js",
+    "test:v06:mutation": "npm run build && node --test dist/test/fingerprint-*.test.js dist/test/store-v2*.test.js",
+    "coverage:global": "npm run build && node --test --experimental-test-coverage --test-coverage-lines=90 --test-coverage-branches=80 --test-coverage-functions=95 dist/test/*.test.js dist/test/v06/*.test.js",
+    "coverage:v06": "npm run build && c8 node --test dist/test/fingerprint-*.test.js dist/test/store-v2*.test.js dist/test/v06/*.test.js",
+    "mutation:v06": "stryker run stryker.config.mjs",
+    "mutation:v06:full": "stryker run stryker.full.config.mjs",
+    "eval:provider": "npm run build && node ./dist/src/shapelex-provider-ab-eval.js",
     "benchmark": "npm run build && node ./dist/src/shapelex-benchmark.js",
     "smoke": "npm run build && node ./dist/src/shapelex-smoke-eval.js",
     "e2e": "npm run build && node ./dist/src/shapelex-e2e-eval.js",
@@ -59,14 +75,21 @@
   ],
   "license": "MIT",
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "publishConfig": {
     "access": "public"
   },
   "sideEffects": false,
   "devDependencies": {
+    "@stryker-mutator/core": "^9.6.1",
+    "@stryker-mutator/typescript-checker": "^9.6.1",
     "@types/node": "^26.0.0",
+    "c8": "^12.0.0",
+    "fast-check": "^4.9.0",
     "typescript": "^6.0.3"
+  },
+  "overrides": {
+    "qs": "6.15.3"
   }
 }

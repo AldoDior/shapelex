@@ -1,0 +1,22 @@
+{
+  "all": true,
+  "include": [
+    "dist/src/fingerprint/**/*.js",
+    "dist/src/storage/**/*.js"
+  ],
+  "exclude": [
+    "dist/**/*.d.ts",
+    "dist/test/**"
+  ],
+  "reporter": [
+    "text",
+    "html",
+    "json-summary"
+  ],
+  "reports-dir": "coverage/v06",
+  "check-coverage": true,
+  "lines": 95,
+  "branches": 90,
+  "functions": 100,
+  "statements": 95
+}

@@ -10,7 +10,11 @@ Open a private security advisory on GitHub if the repository is public. If priva
 
 ## Security Model
 
-ShapeLex is a local MCP server. It does not call external LLMs, embedding APIs, databases, or network services. Pasted text may be stored exactly so agents can recover exact wording through `sx://` handles. File-backed memory stores an index and rereads the existing workspace file instead of storing a second full source copy. Memory-only mode (`SHAPELEX_PERSIST=0`) writes no ShapeLex store.
+ShapeLex is a local MCP server. Its runtime does not call external LLMs, embedding APIs, databases, or network services. Pasted text may be stored exactly so agents can recover exact wording through `sx://` handles. Duplicate text uses one content-addressed source record. File-backed memory stores references and rereads the existing workspace file instead of storing a second full source copy. Memory-only mode (`SHAPELEX_PERSIST=0`) writes no ShapeLex store.
+
+Fingerprint hashes are candidate selectors, not proof of identity. ShapeLex requires full SHA-256 plus byte equality before reporting an exact match. Similar or normalized content remains advisory.
+
+The optional developer-only provider A/B evaluator performs network requests only when explicitly run with an endpoint and API key supplied through environment variables. It is not shipped as MCP runtime code and never runs in normal CI.
 
 The local store can contain sensitive data. Treat `.shapelex/` as private user data and never commit, publish, or upload it.
 
@@ -19,7 +23,7 @@ File-backed handles are restricted to the configured workspace root. ShapeLex re
 ## Supply-Chain Posture
 
 - Runtime dependencies are intentionally zero.
-- Development dependencies are limited to TypeScript and Node.js type definitions.
+- Development-only property, coverage, and mutation dependencies are not included in the published runtime package.
 - The package does not use install-time lifecycle scripts.
 - `prepack` builds artifacts for npm packaging, but consumers do not need to run build scripts during install.
 - Published package contents are constrained with the `files` allowlist in `package.json`.

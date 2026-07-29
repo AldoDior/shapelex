@@ -2,8 +2,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 import { createJsonRpcHandler } from "./mcp-server.js";
 import { ShapeLexEngine } from "./shapelex.js";
+import { PACKAGE_VERSION } from "./version.js";
 
 type Check = {
   name: string;
@@ -29,18 +31,24 @@ const MCP_CONFIGS = [
 
 export async function runDoctor({ cwd = process.cwd() } = {}) {
   const checks: Check[] = [];
+  const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+  const sourceCheckout = samePath(cwd, packageRoot) && fs.existsSync(path.join(packageRoot, "src"));
 
   checks.push(checkNodeVersion());
-  checks.push(checkFile(cwd, "package.json", "package metadata exists"));
-  checks.push(checkFile(cwd, "bin/shapelex-mcp.js", "MCP executable exists"));
-  checks.push(checkFile(cwd, "dist/src/mcp-server.js", "compiled MCP server exists"));
-  checks.push(checkGitignore(cwd));
-  checks.push(...checkMcpConfigs(cwd));
+  checks.push(checkPackageVersion(packageRoot));
+  checks.push(checkFile(packageRoot, "bin/shapelex-mcp.js", "MCP executable exists"));
+  checks.push(checkFile(packageRoot, "dist/src/mcp-server.js", "compiled MCP server exists"));
+  if (sourceCheckout) {
+    checks.push(checkGitignore(cwd));
+    checks.push(...checkMcpConfigs(cwd));
+  }
   checks.push(await checkLeanToolset());
 
   const ok = checks.every((check) => check.ok);
   return {
     ok,
+    version: PACKAGE_VERSION,
+    mode: sourceCheckout ? "source-checkout" : "installed-package",
     platform: {
       os: `${os.type()} ${os.release()}`,
       arch: os.arch(),
@@ -49,7 +57,9 @@ export async function runDoctor({ cwd = process.cwd() } = {}) {
     checks,
     nextSteps: ok
       ? [
-        "Start the MCP server with node ./bin/shapelex-mcp.js, or use the included Codex/Cursor/Claude project configs.",
+        sourceCheckout
+          ? "Start the MCP server with node ./bin/shapelex-mcp.js, or use the included Codex/Cursor/Claude project configs."
+          : "Start the installed MCP server with shapelex-mcp, or configure your client to run npx -y shapelex-mcp.",
         "ShapeLex defaults to the lean toolset. Set SHAPELEX_TOOLSET=full only when you need the compact inspect tool."
       ]
       : [
@@ -62,6 +72,8 @@ export async function runDoctor({ cwd = process.cwd() } = {}) {
 export function renderDoctorReport(report: Awaited<ReturnType<typeof runDoctor>>) {
   const lines = [
     "ShapeLex doctor",
+    `Version: ${report.version}`,
+    `Mode: ${report.mode}`,
     `Platform: ${report.platform.os} ${report.platform.arch}`,
     `Node: ${report.platform.node}`,
     ""
@@ -85,10 +97,30 @@ function checkNodeVersion(): Check {
   const major = Number(process.versions.node.split(".")[0]);
   return {
     name: "node-version",
-    ok: major >= 18,
-    message: major >= 18
+    ok: major >= 22,
+    message: major >= 22
       ? "Node.js is supported."
-      : "Node.js 18 or newer is required."
+      : "Node.js 22 or newer is required."
+  };
+}
+
+function checkPackageVersion(packageRoot: string): Check {
+  const packagePath = path.join(packageRoot, "package.json");
+  if (!fs.existsSync(packagePath)) {
+    return {
+      name: "package-version",
+      ok: false,
+      message: "Package metadata is missing."
+    };
+  }
+  const manifest = JSON.parse(fs.readFileSync(packagePath, "utf8"));
+  const ok = manifest.version === PACKAGE_VERSION;
+  return {
+    name: "package-version",
+    ok,
+    message: ok
+      ? `Package and runtime agree on ShapeLex ${PACKAGE_VERSION}.`
+      : `Package version ${String(manifest.version)} does not match runtime ${PACKAGE_VERSION}.`
   };
 }
 
@@ -141,6 +173,14 @@ function checkMcpConfigs(cwd: string): Check[] {
         : "Config should set SHAPELEX_TOOLSET=lean, SHAPELEX_MAX_STORE_MB, and a private .shapelex-* store."
     };
   });
+}
+
+function samePath(left: string, right: string): boolean {
+  const resolvedLeft = fs.realpathSync.native(path.resolve(left));
+  const resolvedRight = fs.realpathSync.native(path.resolve(right));
+  return process.platform === "win32"
+    ? resolvedLeft.toLowerCase() === resolvedRight.toLowerCase()
+    : resolvedLeft === resolvedRight;
 }
 
 async function checkLeanToolset(): Promise<Check> {

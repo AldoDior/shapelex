@@ -1,12 +1,44 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import {
+  LEXICAL_PROFILE,
+  LazyFingerprintIndex,
+  type FingerprintMatchAlignment,
+  type FingerprintMatchWindow,
+  type MatchResult
+} from "./fingerprint/index.js";
+import {
+  StoreBusyError,
+  StoreRevisionConflictError,
+  TransactionalStoreV2,
+  sourceRecordFromMaterial,
+  type StoreSourceRecord
+} from "./storage/index.js";
+
+export type { MatchKind } from "./fingerprint/index.js";
+
+export interface CompactMatch {
+  uri: string;
+  matchKind:
+    | "exact"
+    | "normalized_equal"
+    | "strong_related"
+    | "related_reordered"
+    | "related"
+    | "keyword"
+    | "unrelated";
+  score: number;
+  exact: boolean;
+  mustExpand: boolean;
+  criticalDiff: boolean;
+}
 
 const DEFAULT_SESSION_ID = "default";
-const STORE_VERSION = 1;
 const DEFAULT_STORE_FILE = "shapelex-store.json";
 export const DEFAULT_MAX_STORE_BYTES = 100 * 1024 * 1024;
 const MAX_TEXT_CHARS = 2_000_000;
+const MAX_TEXT_BYTES = MAX_TEXT_CHARS * 4;
 const MAX_QUERY_CHARS = 2_000;
 const MAX_LABEL_CHARS = 200;
 const LONG_SPAN_CHARS = 240;
@@ -40,6 +72,19 @@ const ACTION_WORDS = new Set([
   "return", "throw", "commit", "push", "merge", "deploy", "borrar", "eliminar",
   "aprobar", "rechazar", "permitir", "bloquear", "guardar", "ejecutar"
 ]);
+const STORE_RETRY_SIGNAL = new Int32Array(new SharedArrayBuffer(4));
+
+function staleSourceError(message: string, cause?: unknown) {
+  const error = new Error(message, cause instanceof Error ? { cause } : undefined) as Error & {
+    code: "STALE_SOURCE";
+  };
+  error.code = "STALE_SOURCE";
+  return error;
+}
+
+function sleepForStoreRetry(milliseconds: number) {
+  Atomics.wait(STORE_RETRY_SIGNAL, 0, 0, milliseconds);
+}
 
 export class ShapeLexEngine {
   sessions: Map<string, any>;
@@ -50,6 +95,10 @@ export class ShapeLexEngine {
   gitignoreProtection?: any;
   workspaceRoot: string;
   workspaceRootReal: string;
+  workspaceId: string;
+  storeCoordinator?: TransactionalStoreV2<any>;
+  sourceRecords: Map<string, StoreSourceRecord>;
+  fingerprintIndexes: Map<string, LazyFingerprintIndex>;
 
   constructor({
     storageDir,
@@ -58,15 +107,27 @@ export class ShapeLexEngine {
     workspaceRoot = process.cwd()
   }: { storageDir?: string; persistent?: boolean; maxStoreBytes?: number; workspaceRoot?: string } = {}) {
     this.sessions = new Map();
+    this.sourceRecords = new Map();
+    this.fingerprintIndexes = new Map();
     this.persistent = persistent;
     this.maxStoreBytes = normalizeMaxStoreBytes(maxStoreBytes);
     this.workspaceRoot = path.resolve(workspaceRoot);
     this.workspaceRootReal = fs.realpathSync(this.workspaceRoot);
+    this.workspaceId = sourceHash(normalizeWorkspaceIdentity(this.workspaceRootReal));
     this.storageDir = this.persistent && storageDir ? path.resolve(storageDir) : undefined;
     this.storePath = this.storageDir ? path.join(this.storageDir, DEFAULT_STORE_FILE) : undefined;
     this.gitignoreProtection = this.persistent
       ? protectLocalStoreWithGitignore(this.storageDir)
       : { status: "not-needed", reason: "memory-only" };
+    if (this.persistent && this.storePath) {
+      this.storeCoordinator = new TransactionalStoreV2({
+        storePath: this.storePath,
+        persistent: true,
+        maxStoreBytes: this.maxStoreBytes,
+        workspaceId: this.workspaceId,
+        resolveFileSource: ({ relativePath, document }) => this.#resolveLegacyFileSource(relativePath, document)
+      });
+    }
     this.#loadStore();
   }
 
@@ -82,7 +143,7 @@ export class ShapeLexEngine {
   }
 
   compressText(input: any = {}) {
-    return this.#compressText(input);
+    return this.#retryStoreMutation(() => this.#compressText(input));
   }
 
   compressFile({
@@ -98,6 +159,9 @@ export class ShapeLexEngine {
     }
     assertString(sourcePath, "sourcePath");
     const source = this.#resolveWorkspaceFile(sourcePath);
+    if (source.byteLength > MAX_TEXT_BYTES) {
+      throw new RangeError(`source file exceeds the maximum UTF-8 size of ${MAX_TEXT_BYTES} bytes`);
+    }
     const fileBuffer = fs.readFileSync(source.absolutePath);
     const fileText = fileBuffer.toString("utf8");
     if (!Buffer.from(fileText, "utf8").equals(fileBuffer)) {
@@ -105,26 +169,29 @@ export class ShapeLexEngine {
     }
     assertBoundedString(fileText, "source file", MAX_TEXT_CHARS);
     const normalizedMode = mode === undefined ? inferFileMode(source.relativePath) : mode;
-    return this.#compressText({
-      sessionId,
-      text: fileText,
-      label: label ?? source.relativePath,
-      mode: normalizedMode,
-      budgetTokens
-    }, {
-      kind: "file",
-      relativePath: source.relativePath,
-      byteLength: fileBuffer.length
-    });
+    return this.#retryStoreMutation(() => this.#compressText({
+        sessionId,
+        text: fileText,
+        label: label ?? source.relativePath,
+        mode: normalizedMode,
+        budgetTokens
+      }, {
+        kind: "file",
+        relativePath: source.relativePath,
+        byteLength: fileBuffer.length
+      }));
   }
 
   #compressText(
     { sessionId = DEFAULT_SESSION_ID, text, label = "text", mode = "text", budgetTokens }: any = {},
     fileSource?: any
   ) {
+    this.#refreshStoreIfChanged();
     assertBoundedString(text, "text", MAX_TEXT_CHARS);
     const normalizedMode = normalizeTextMode(mode);
     const normalizedLabel = normalizeLabel(label);
+    const sourceId = `source_${sourceHash(text)}`;
+    const deduplicated = this.sourceRecords.has(sourceId);
     const session = this.#session(sessionId);
     const transaction = sessionTransactionSnapshot(session);
     const document = this.#createDocument(session, { text, label: normalizedLabel, mode: normalizedMode });
@@ -135,6 +202,8 @@ export class ShapeLexEngine {
         rollbackDocumentTransaction(session, document, transaction);
         throw error;
       }
+    } else {
+      this.#convertDocumentToTextBacked(session, document);
     }
     document.handles = document.handles.map(publicHandleMetadata);
     const compressedText = renderNavigableDocument(document);
@@ -152,6 +221,8 @@ export class ShapeLexEngine {
       conversation: document.conversation,
       source: document.source
     });
+    payload.deduplicated = deduplicated;
+    payload.matchKind = deduplicated ? "exact" : "unrelated";
 
     if (Number.isFinite(budgetTokens)) {
       payload.budgetTokens = budgetTokens;
@@ -164,22 +235,43 @@ export class ShapeLexEngine {
       this.#saveStore();
     } catch (error) {
       rollbackDocumentTransaction(session, document, transaction);
+      this.#dropUnusedSourceRecords();
       throw error;
     }
+    this.#registerDocumentFingerprints(session, document);
     return result;
   }
 
-  compressMessages({ sessionId = DEFAULT_SESSION_ID, messages, budgetTokens, label = "conversation" }: any = {}) {
+  compressMessages(input: any = {}) {
+    return this.#retryStoreMutation(() => this.#compressMessages(input));
+  }
+
+  #compressMessages({ sessionId = DEFAULT_SESSION_ID, messages, budgetTokens, label = "conversation" }: any = {}) {
+    this.#refreshStoreIfChanged();
     if (!Array.isArray(messages)) {
       throw new TypeError("messages must be an array");
     }
-    messages.forEach(assertMessage);
+    let aggregateCharacters = 0;
+    messages.forEach((message, index) => {
+      assertMessage(message, index);
+      aggregateCharacters += (
+        String(message.role).length
+        + String(index).length
+        + String(message.content).length
+        + 6
+      );
+      if (aggregateCharacters > MAX_TEXT_CHARS) {
+        throw new RangeError(`messages must be ${MAX_TEXT_CHARS} characters or fewer in total`);
+      }
+    });
     const normalizedLabel = normalizeLabel(label);
 
     const text = messages
       .map((message, index) => `[${message.role ?? "unknown"}#${index}] ${message.content ?? ""}`)
       .join("\n\n");
     assertBoundedString(text, "messages", MAX_TEXT_CHARS);
+    const sourceId = `source_${sourceHash(text)}`;
+    const deduplicated = this.sourceRecords.has(sourceId);
     const session = this.#session(sessionId);
     const transaction = sessionTransactionSnapshot(session);
     const document = this.#createDocument(session, {
@@ -188,6 +280,7 @@ export class ShapeLexEngine {
       mode: "conversation",
       messages
     });
+    this.#convertDocumentToTextBacked(session, document);
     document.handles = document.handles.map(publicHandleMetadata);
 
     const compressedMessages = messages.map((message, index) => {
@@ -223,6 +316,8 @@ export class ShapeLexEngine {
       confidence: document.confidence,
       conversation: document.conversation
     });
+    payload.deduplicated = deduplicated;
+    payload.matchKind = deduplicated ? "exact" : "unrelated";
 
     if (Number.isFinite(budgetTokens)) {
       payload.budgetTokens = budgetTokens;
@@ -235,12 +330,15 @@ export class ShapeLexEngine {
       this.#saveStore();
     } catch (error) {
       rollbackDocumentTransaction(session, document, transaction);
+      this.#dropUnusedSourceRecords();
       throw error;
     }
+    this.#registerDocumentFingerprints(session, document);
     return result;
   }
 
   expand({ sessionId = DEFAULT_SESSION_ID, handle }: any): any {
+    this.#refreshStoreIfChanged();
     assertString(handle, "handle");
     const id = normalizeSessionId(sessionId);
     const session = this.sessions.get(id);
@@ -257,7 +355,9 @@ export class ShapeLexEngine {
       }
       const documentText = document.source?.kind === "file"
         ? this.#readFileDocument(document.source, handle)
-        : document.text;
+        : document.source?.kind === "text"
+          ? this.#readTextDocument(document.source, handle)
+          : document.text;
       assertDocumentIntegrity(document, handle, documentText);
       session.lastAccessedAt = new Date().toISOString();
       return {
@@ -281,7 +381,9 @@ export class ShapeLexEngine {
     }
     const spanText = span.source?.kind === "file"
       ? this.#readFileSpan(span.source, handle)
-      : span.text;
+      : span.source?.kind === "text"
+        ? this.#readTextSpan(span.source, handle)
+        : span.text;
     assertSpanIntegrity(span, handle, spanText);
 
     session.lastAccessedAt = new Date().toISOString();
@@ -295,7 +397,12 @@ export class ShapeLexEngine {
     };
   }
 
-  search({ sessionId = DEFAULT_SESSION_ID, query, mode, limit = 8 }: any = {}) {
+  search(input: any = {}) {
+    return this.#retryStoreMutation(() => this.#search(input));
+  }
+
+  #search({ sessionId = DEFAULT_SESSION_ID, query, mode, limit = 8 }: any = {}) {
+    this.#refreshStoreIfChanged();
     assertBoundedString(query, "query", MAX_QUERY_CHARS);
     const id = normalizeSessionId(sessionId);
     const normalizedMode = mode === undefined ? undefined : normalizeSearchMode(mode);
@@ -306,10 +413,57 @@ export class ShapeLexEngine {
     }
 
     const queryTokens = tokenize(query).map((token) => token.toLowerCase());
-    const results = [];
+    const fingerprintSearch = this.#fingerprintIndex(session).search(query);
+    const results: any[] = [];
+    const matchedDocuments = new Set<string>();
+    const createdSpanIds: string[] = [];
+    const nextSpanBeforeSearch = session.nextSpan;
+    const staleDocuments = new Set(
+      fingerprintSearch.diagnostics.staleDocuments
+        .map((documentId) => resolveFingerprintTarget(session, documentId)?.document.id)
+        .filter((documentId): documentId is string => Boolean(documentId))
+    );
+
+    for (const match of fingerprintSearch.matches) {
+      if (match.result.matchKind === "unrelated") {
+        continue;
+      }
+      let target = resolveFingerprintTarget(session, match.documentId);
+      if (!target || (normalizedMode && target.document.mode !== normalizedMode)) {
+        continue;
+      }
+      let effectiveResult = match.result;
+      if (match.window && match.result.exact) {
+        const materialized = this.#materializeFingerprintWindow(
+          session,
+          target,
+          match.window,
+          query
+        );
+        if (materialized) {
+          target = materialized.target;
+          if (materialized.created) {
+            createdSpanIds.push(materialized.target.metadata.spanId);
+          }
+        } else {
+          effectiveResult = downgradeUnmaterializedExactWindow(match.result);
+        }
+      }
+      if (matchedDocuments.has(target.document.id)) {
+        continue;
+      }
+      matchedDocuments.add(target.document.id);
+      results.push(fingerprintSearchResult(target, effectiveResult, match.alignment));
+    }
 
     for (const document of session.documents.values()) {
       if (normalizedMode && document.mode !== normalizedMode) {
+        continue;
+      }
+      if (staleDocuments.has(document.id)) {
+        continue;
+      }
+      if (matchedDocuments.has(document.id)) {
         continue;
       }
       const score = scoreDocument(document, queryTokens);
@@ -321,21 +475,51 @@ export class ShapeLexEngine {
         uri: document.uri,
         label: document.label,
         mode: document.mode,
-        score,
+        score: Math.min(1, score / Math.max(1, queryTokens.length)),
+        matchKind: "keyword",
+        exact: false,
+        mustExpand: Boolean(document.risk?.mustExpand || document.risk?.shouldExpand),
+        criticalDiff: false,
         risk: document.risk,
         bestAnchors: document.levels[2].anchors.filter((anchor) => queryTokens.includes(anchor.toLowerCase())).slice(0, 6),
         criticalExtracts: document.levels[3].criticalExtracts.slice(0, 3)
       });
     }
 
+    if (createdSpanIds.length > 0) {
+      try {
+        this.#saveStore();
+      } catch (error) {
+        if (!(error instanceof StoreRevisionConflictError)) {
+          for (const spanId of createdSpanIds) {
+            session.spans.delete(spanId);
+            session.spanToDocument.delete(spanId);
+            for (const document of session.documents.values()) {
+              document.handles = document.handles.filter((handle) => handle.spanId !== spanId);
+              document.levels["4"].handles = document.levels["4"].handles.filter(
+                (handle) => handle.uri !== `sx://${session.id}/span/${spanId}`
+              );
+            }
+          }
+          session.nextSpan = nextSpanBeforeSearch;
+        }
+        throw error;
+      }
+    }
+
     return {
       sessionId: id,
       query,
-      results: results.sort((a, b) => b.score - a.score).slice(0, normalizedLimit)
+      searchComplete: fingerprintSearch.diagnostics.searchComplete,
+      diagnostics: fingerprintSearch.diagnostics,
+      results: results
+        .sort(comparePublicSearchResults)
+        .slice(0, normalizedLimit)
     };
   }
 
   retrieve({ sessionId = DEFAULT_SESSION_ID, uri, level = 1, query }: any = {}): any {
+    this.#refreshStoreIfChanged();
     assertString(uri, "uri");
     const id = normalizeSessionId(sessionId);
     const normalizedLevel = normalizeLevel(level);
@@ -382,6 +566,7 @@ export class ShapeLexEngine {
   }
 
   context({ sessionId = DEFAULT_SESSION_ID, query, mode, limit = 3, detail = "standard" }: any = {}) {
+    this.#refreshStoreIfChanged();
     const id = normalizeSessionId(sessionId);
     assertBoundedString(query, "query", MAX_QUERY_CHARS);
     const normalizedMode = mode === undefined ? undefined : normalizeSearchMode(mode);
@@ -392,19 +577,31 @@ export class ShapeLexEngine {
       throw new Error(`Unknown ShapeLex session: ${id}`);
     }
 
-    const matches = this.search({
+    const searchResponse = this.search({
       sessionId: id,
       query,
       mode: normalizedMode,
       limit: normalizedLimit
-    }).results;
-    const documents = matches
-      .map((match) => session.documents.get(match.documentId))
-      .filter(Boolean)
-      .map((document) => compactDocumentContext(document, {
-        query,
-        detail: normalizedDetail
-      }));
+    });
+    const matches = searchResponse.results;
+    const seenDocuments = new Set<string>();
+    const documents = matches.flatMap((match) => {
+      if (seenDocuments.has(match.documentId)) {
+        return [];
+      }
+      const document = session.documents.get(match.documentId);
+      if (!document) {
+        return [];
+      }
+      seenDocuments.add(match.documentId);
+      return [{
+        ...compactDocumentContext(document, {
+          query,
+          detail: normalizedDetail
+        }),
+        match: compactMatchMetadata(match)
+      }];
+    });
     const contextText = renderContextText({
       sessionId: id,
       query,
@@ -416,6 +613,7 @@ export class ShapeLexEngine {
       sessionId: id,
       query,
       detail: normalizedDetail,
+      searchComplete: searchResponse.searchComplete,
       results: documents,
       contextText,
       tokenEstimate: estimateTokens(contextText),
@@ -426,6 +624,7 @@ export class ShapeLexEngine {
   }
 
   explain({ sessionId = DEFAULT_SESSION_ID, uri }: any = {}) {
+    this.#refreshStoreIfChanged();
     assertString(uri, "uri");
     const id = normalizeSessionId(sessionId);
     const session = this.sessions.get(id);
@@ -449,7 +648,7 @@ export class ShapeLexEngine {
       explanation: [
         "Level 0 is a short orientation summary.",
         "Level 1 is a navigable semantic map.",
-        "Level 2 exposes anchors and fingerprints for search.",
+        "Level 2 exposes model-readable anchors; internal fingerprints stay private.",
         "Level 3 preserves exact critical extracts.",
         "Level 4 contains exact expandable handles."
       ],
@@ -461,6 +660,7 @@ export class ShapeLexEngine {
   }
 
   riskAssessment({ sessionId = DEFAULT_SESSION_ID, uri, text }: any = {}) {
+    this.#refreshStoreIfChanged();
     if (text !== undefined) {
       assertBoundedString(text, "text", MAX_TEXT_CHARS);
       const analysis = analyzeRisk(text, { mode: "text", criticalExtracts: extractCriticalExtracts(text) });
@@ -490,6 +690,7 @@ export class ShapeLexEngine {
   }
 
   listResources({ sessionId }: any = {}) {
+    this.#refreshStoreIfChanged();
     const id = sessionId === undefined ? undefined : normalizeSessionId(sessionId);
     const sessions = id ? [this.sessions.get(id)].filter(Boolean) : [...this.sessions.values()];
     const resources = [];
@@ -519,6 +720,7 @@ export class ShapeLexEngine {
   }
 
   readResource({ uri }: any) {
+    this.#refreshStoreIfChanged();
     assertString(uri, "uri");
     const parsed = parseResourceUri(uri);
     const session = this.sessions.get(parsed.sessionId);
@@ -546,18 +748,23 @@ export class ShapeLexEngine {
   }
 
   stats({ sessionId }: any = {}) {
+    this.#refreshStoreIfChanged();
     const id = sessionId === undefined ? undefined : normalizeSessionId(sessionId);
     const sessions = id ? [this.sessions.get(id)].filter(Boolean) : [...this.sessions.values()];
-    const sessionStats = sessions.map((session) => ({
-      sessionId: session.id,
-      createdAt: session.createdAt,
-      lastAccessedAt: session.lastAccessedAt,
-      activeDocuments: session.documents.size,
-      activeHandles: session.spans.size,
-      approxMemoryBytes: storedSpanBytes(session),
-      referencedSourceBytes: referencedSourceBytes(session),
-      usage: summarizeUsageEvents(session.usageEvents ?? [])
-    }));
+    const sessionStats = sessions.map((session) => {
+      const fingerprintIndex = this.#fingerprintIndex(session).stats();
+      return {
+        sessionId: session.id,
+        createdAt: session.createdAt,
+        lastAccessedAt: session.lastAccessedAt,
+        activeDocuments: session.documents.size,
+        activeHandles: session.spans.size,
+        approxMemoryBytes: storedSpanBytes(session, this.sourceRecords),
+        referencedSourceBytes: referencedSourceBytes(session),
+        fingerprintIndex,
+        usage: summarizeUsageEvents(session.usageEvents ?? [])
+      };
+    });
 
     return {
       sessions: sessionStats,
@@ -565,6 +772,17 @@ export class ShapeLexEngine {
       activeHandles: sessionStats.reduce((sum, item) => sum + item.activeHandles, 0),
       approxMemoryBytes: sessionStats.reduce((sum, item) => sum + item.approxMemoryBytes, 0),
       referencedSourceBytes: sessionStats.reduce((sum, item) => sum + item.referencedSourceBytes, 0),
+      fingerprintIndex: {
+        profile: LEXICAL_PROFILE.id,
+        registeredDocuments: sessionStats.reduce((sum, item) => sum + item.fingerprintIndex.registeredDocuments, 0),
+        warmDocuments: sessionStats.reduce((sum, item) => sum + item.fingerprintIndex.warmDocuments, 0),
+        coldDocuments: sessionStats.reduce((sum, item) => sum + item.fingerprintIndex.coldDocuments, 0),
+        estimatedIndexBytes: sessionStats.reduce((sum, item) => sum + item.fingerprintIndex.estimatedIndexBytes, 0),
+        suppressedHashes: sessionStats.reduce((sum, item) => sum + item.fingerprintIndex.suppressedHashes, 0),
+        evictions: sessionStats.reduce((sum, item) => sum + item.fingerprintIndex.evictions, 0),
+        incompleteSearches: sessionStats.reduce((sum, item) => sum + item.fingerprintIndex.incompleteSearches, 0),
+        strategy: "lazy-memory-only"
+      },
       tokenAccounting: {
         estimator: TOKEN_ESTIMATOR_ID,
         exact: false,
@@ -573,29 +791,35 @@ export class ShapeLexEngine {
       },
       persistence: {
         enabled: this.persistent,
-        storePath: this.storePath,
+        storePath: this.storePath ? path.basename(this.storePath) : undefined,
         maxStoreBytes: this.maxStoreBytes,
         strategy: this.persistent ? "single-json-file" : "memory-only",
+        format: this.persistent ? "transactional-json-v2" : "memory-only",
         gitignoreProtection: this.gitignoreProtection
       }
     };
   }
 
   memoryOverview({ sessionId }: any = {}) {
+    this.#refreshStoreIfChanged();
     const id = sessionId === undefined ? DEFAULT_SESSION_ID : normalizeSessionId(sessionId);
     const sessions = [...this.sessions.values()]
       .sort((a, b) => Date.parse(b.lastAccessedAt) - Date.parse(a.lastAccessedAt));
     const current = this.sessions.get(id);
-    const sessionSummaries = sessions.map((session) => ({
-      sessionId: session.id,
-      isCurrent: session.id === id,
-      lastUsed: session.lastAccessedAt,
-      documents: session.documents.size,
-      handles: session.spans.size,
-      approxMemoryBytes: storedSpanBytes(session),
-      referencedSourceBytes: referencedSourceBytes(session),
-      labels: [...session.documents.values()].map((document) => document.label).slice(0, 6)
-    }));
+    const sessionSummaries = sessions.map((session) => {
+      const fingerprintIndex = this.#fingerprintIndex(session).stats();
+      return {
+        sessionId: session.id,
+        isCurrent: session.id === id,
+        lastUsed: session.lastAccessedAt,
+        documents: session.documents.size,
+        handles: session.spans.size,
+        approxMemoryBytes: storedSpanBytes(session, this.sourceRecords),
+        referencedSourceBytes: referencedSourceBytes(session),
+        fingerprintIndex,
+        labels: [...session.documents.values()].map((document) => document.label).slice(0, 6)
+      };
+    });
 
     const suggestions = [];
     if (!current) {
@@ -621,6 +845,16 @@ export class ShapeLexEngine {
         ? `You are using ShapeLex memory session "${id}". It has ${current.documents.size} document(s) and ${current.spans.size} expandable handle(s).`
         : `You are using session name "${id}", but it does not have stored memory yet.`,
       sessions: sessionSummaries,
+      fingerprintIndex: {
+        profile: LEXICAL_PROFILE.id,
+        warmDocuments: sessionSummaries.reduce((sum, item) => sum + item.fingerprintIndex.warmDocuments, 0),
+        coldDocuments: sessionSummaries.reduce((sum, item) => sum + item.fingerprintIndex.coldDocuments, 0),
+        estimatedIndexBytes: sessionSummaries.reduce((sum, item) => sum + item.fingerprintIndex.estimatedIndexBytes, 0),
+        suppressedHashes: sessionSummaries.reduce((sum, item) => sum + item.fingerprintIndex.suppressedHashes, 0),
+        evictions: sessionSummaries.reduce((sum, item) => sum + item.fingerprintIndex.evictions, 0),
+        incompleteSearches: sessionSummaries.reduce((sum, item) => sum + item.fingerprintIndex.incompleteSearches, 0),
+        strategy: "lazy-memory-only"
+      },
       tokenAccounting: {
         estimator: TOKEN_ESTIMATOR_ID,
         exact: false,
@@ -635,18 +869,44 @@ export class ShapeLexEngine {
     };
   }
 
-  clear({ sessionId }: any = {}) {
-    if (sessionId) {
-      this.sessions.delete(normalizeSessionId(sessionId));
+  clear(input: any = {}) {
+    return this.#retryStoreMutation(() => this.#clear(input));
+  }
+
+  #clear({ sessionId }: any = {}) {
+    this.#refreshStoreIfChanged();
+    const previousSessions = new Map(this.sessions);
+    const previousIndexes = new Map(this.fingerprintIndexes);
+    const previousSources = new Map(this.sourceRecords);
+    if (sessionId !== undefined) {
+      const id = normalizeSessionId(sessionId);
+      this.sessions.delete(id);
+      this.fingerprintIndexes.delete(id);
     } else {
       this.sessions.clear();
+      this.fingerprintIndexes.clear();
     }
 
-    this.#saveStore();
+    this.#dropUnusedSourceRecords();
+    try {
+      this.#saveStore();
+    } catch (error) {
+      if (!(error instanceof StoreRevisionConflictError)) {
+        this.sessions = previousSessions;
+        this.fingerprintIndexes = previousIndexes;
+        this.sourceRecords = previousSources;
+      }
+      throw error;
+    }
     return { cleared: true };
   }
 
-  prune({ olderThanDays, maxSessions, dryRun = false }: any = {}) {
+  prune(input: any = {}) {
+    return this.#retryStoreMutation(() => this.#prune(input));
+  }
+
+  #prune({ olderThanDays, maxSessions, dryRun = false }: any = {}) {
+    this.#refreshStoreIfChanged();
     const cutoff = olderThanDays === undefined
       ? undefined
       : Date.now() - normalizeNonNegativeNumber(olderThanDays, "olderThanDays") * 24 * 60 * 60 * 1000;
@@ -678,10 +938,24 @@ export class ShapeLexEngine {
     const before = this.stats();
 
     if (!dryRun) {
+      const previousSessions = new Map(this.sessions);
+      const previousIndexes = new Map(this.fingerprintIndexes);
+      const previousSources = new Map(this.sourceRecords);
       for (const sessionId of removedSessions) {
         this.sessions.delete(sessionId);
+        this.fingerprintIndexes.delete(sessionId);
       }
-      this.#saveStore();
+      this.#dropUnusedSourceRecords();
+      try {
+        this.#saveStore();
+      } catch (error) {
+        if (!(error instanceof StoreRevisionConflictError)) {
+          this.sessions = previousSessions;
+          this.fingerprintIndexes = previousIndexes;
+          this.sourceRecords = previousSources;
+        }
+        throw error;
+      }
     }
 
     const after = dryRun ? before : this.stats();
@@ -703,11 +977,33 @@ export class ShapeLexEngine {
   }
 
   flush() {
-    this.#saveStore();
-    return {
-      persisted: this.persistent,
-      storePath: this.storePath
-    };
+    return this.#retryStoreMutation(() => {
+      this.#refreshStoreIfChanged();
+      this.#saveStore();
+      return {
+        persisted: this.persistent,
+        storePath: this.storePath
+      };
+    });
+  }
+
+  #retryStoreMutation<T>(operation: () => T): T {
+    const startedAt = Date.now();
+    let attempt = 0;
+    while (true) {
+      try {
+        return operation();
+      } catch (error) {
+        if (!(error instanceof StoreRevisionConflictError) || Date.now() - startedAt >= 2_000) {
+          if (error instanceof StoreRevisionConflictError) {
+            throw new StoreBusyError(this.storePath);
+          }
+          throw error;
+        }
+        attempt += 1;
+        sleepForStoreRetry(1 + ((process.pid * 17 + attempt * 13) % 17));
+      }
+    }
   }
 
   #session(sessionId) {
@@ -742,7 +1038,7 @@ export class ShapeLexEngine {
       label,
       mode,
       text,
-      checksum: shortHash(text, 24),
+      checksum: sourceHash(text),
       createdAt: new Date().toISOString(),
       handles: [],
       messages
@@ -799,7 +1095,18 @@ export class ShapeLexEngine {
 
   #convertDocumentToFileBacked(session: any, document: any, fileSource: any) {
     const sourceText = document.text;
+    const sourceRecord = sourceRecordFromMaterial({
+      bytes: Buffer.from(sourceText, "utf8"),
+      origin: {
+        kind: "file",
+        sessionId: session.id,
+        documentId: document.id,
+        relativePath: fileSource.relativePath
+      }
+    });
+    this.#mergeSourceRecord(sourceRecord);
     let searchOffset = 0;
+    let searchByteOffset = 0;
 
     for (const handle of document.handles) {
       const span = session.spans.get(handle.spanId);
@@ -820,9 +1127,9 @@ export class ShapeLexEngine {
         throw new Error(`ShapeLex could not locate span content in ${fileSource.relativePath}`);
       }
       const endChar = startChar + matchedText.length;
-      const startByte = Buffer.byteLength(sourceText.slice(0, startChar), "utf8");
+      const startByte = searchByteOffset + Buffer.byteLength(sourceText.slice(searchOffset, startChar), "utf8");
       const endByte = startByte + Buffer.byteLength(matchedText, "utf8");
-      const spanChecksum = shortHash(matchedText, 24);
+      const spanChecksum = sourceHash(matchedText);
       handle.checksum = spanChecksum;
       handle.charLength = matchedText.length;
       handle.tokenEstimate = estimateTokens(matchedText);
@@ -838,16 +1145,147 @@ export class ShapeLexEngine {
       delete span.metadata.fingerprints;
       delete span.text;
       searchOffset = endChar;
+      searchByteOffset = endByte;
     }
 
     document.source = {
       kind: "file",
+      sourceId: sourceRecord.sourceId,
       relativePath: fileSource.relativePath,
       encoding: "utf8",
       byteLength: fileSource.byteLength,
       checksum: document.checksum
     };
     delete document.text;
+  }
+
+  #convertDocumentToTextBacked(session: any, document: any) {
+    if (typeof document.text !== "string") {
+      return;
+    }
+    const sourceText = document.text;
+    const sourceRecord = sourceRecordFromMaterial({
+      bytes: Buffer.from(sourceText, "utf8"),
+      origin: {
+        kind: "text",
+        sessionId: session.id,
+        documentId: document.id
+      },
+      legacyChecksum: typeof document.checksum === "string" && document.checksum.length < 64
+        ? document.checksum
+        : undefined
+    });
+    this.#mergeSourceRecord(sourceRecord);
+    let searchOffset = 0;
+    let searchByteOffset = 0;
+
+    for (const handle of document.handles) {
+      const span = session.spans.get(handle.spanId);
+      if (!span || typeof span.text !== "string") {
+        throw new Error(`ShapeLex could not create an exact text source for ${handle.uri}`);
+      }
+      let matchedText = span.text;
+      let startChar = sourceText.indexOf(matchedText, searchOffset);
+      if (startChar < 0 && matchedText.includes("\n")) {
+        const crlfText = matchedText.replace(/\n/g, "\r\n");
+        const crlfStart = sourceText.indexOf(crlfText, searchOffset);
+        if (crlfStart >= 0) {
+          matchedText = crlfText;
+          startChar = crlfStart;
+        }
+      }
+      if (startChar < 0) {
+        throw new Error(`ShapeLex could not locate exact text for ${handle.uri}`);
+      }
+      const endChar = startChar + matchedText.length;
+      const startByte = searchByteOffset + Buffer.byteLength(sourceText.slice(searchOffset, startChar), "utf8");
+      const endByte = startByte + Buffer.byteLength(matchedText, "utf8");
+      const spanChecksum = sourceHash(matchedText);
+      handle.checksum = spanChecksum;
+      handle.charLength = matchedText.length;
+      handle.tokenEstimate = estimateTokens(matchedText);
+      span.metadata.checksum = spanChecksum;
+      span.metadata.charLength = matchedText.length;
+      span.metadata.tokenEstimate = estimateTokens(matchedText);
+      span.source = {
+        kind: "text",
+        sourceId: sourceRecord.sourceId,
+        startByte,
+        endByte,
+        checksum: spanChecksum,
+        documentChecksum: sourceRecord.sha256
+      };
+      delete span.metadata.shapes;
+      delete span.metadata.fingerprints;
+      delete span.text;
+      searchOffset = endChar;
+      searchByteOffset = endByte;
+    }
+
+    document.checksum = sourceRecord.sha256;
+    document.source = {
+      kind: "text",
+      sourceId: sourceRecord.sourceId,
+      encoding: "utf8",
+      byteLength: sourceRecord.byteLength,
+      checksum: sourceRecord.sha256
+    };
+    delete document.text;
+  }
+
+  #mergeSourceRecord(candidate: StoreSourceRecord) {
+    const existing = this.sourceRecords.get(candidate.sourceId);
+    if (!existing) {
+      this.sourceRecords.set(candidate.sourceId, candidate);
+      return;
+    }
+    if (
+      existing.sha256 !== candidate.sha256
+      || existing.byteLength !== candidate.byteLength
+      || (existing.text !== undefined && candidate.text !== undefined && existing.text !== candidate.text)
+    ) {
+      throw new Error("ShapeLex detected a source digest collision");
+    }
+    existing.text ??= candidate.text;
+    for (const origin of candidate.origins) {
+      if (!existing.origins.some((item) => JSON.stringify(item) === JSON.stringify(origin))) {
+        existing.origins.push(origin);
+      }
+    }
+    existing.legacyChecksums = [...new Set([
+      ...existing.legacyChecksums,
+      ...candidate.legacyChecksums
+    ])];
+  }
+
+  #adoptStoredSource(session: any, document: any) {
+    const currentSourceId = document.source?.sourceId;
+    const sourceRecord = (
+      typeof currentSourceId === "string"
+        ? this.sourceRecords.get(currentSourceId)
+        : undefined
+    ) ?? [...this.sourceRecords.values()].find((record) => record.origins.some((origin) => (
+      origin.sessionId === session.id && origin.documentId === document.id
+    )));
+
+    if (typeof document.text === "string") {
+      this.#convertDocumentToTextBacked(session, document);
+      return;
+    }
+    if (!sourceRecord) {
+      return;
+    }
+    document.source ??= {};
+    document.source.sourceId = sourceRecord.sourceId;
+    document.source.checksum = sourceRecord.sha256;
+    document.checksum = sourceRecord.sha256;
+    for (const span of session.spans.values()) {
+      if (span.metadata?.documentId !== document.id || !span.source) {
+        continue;
+      }
+      span.source.sourceId ??= sourceRecord.sourceId;
+      span.source.documentChecksum = sourceRecord.sha256;
+    }
   }
 
   #resolveWorkspaceFile(sourcePath: string) {
@@ -859,7 +1297,7 @@ export class ShapeLexEngine {
     }
     const absolutePath = fs.realpathSync(candidate);
     const relativePath = path.relative(this.workspaceRootReal, absolutePath);
-    if (!relativePath || relativePath === ".") {
+    if (!relativePath) {
       throw new Error("ShapeLex sourcePath must identify a file inside the workspace");
     }
     if (path.isAbsolute(relativePath) || relativePath.startsWith(`..${path.sep}`) || relativePath === "..") {
@@ -871,33 +1309,222 @@ export class ShapeLexEngine {
     }
     return {
       absolutePath,
-      relativePath: relativePath.split(path.sep).join("/")
+      relativePath: relativePath.split(path.sep).join("/"),
+      byteLength: stat.size
     };
   }
 
   #readFileDocument(source: any, handle: string) {
-    const resolved = this.#resolveWorkspaceFile(source.relativePath);
-    const fileBuffer = fs.readFileSync(resolved.absolutePath);
+    let fileBuffer: Buffer;
+    try {
+      const resolved = this.#resolveWorkspaceFile(source.relativePath);
+      fileBuffer = fs.readFileSync(resolved.absolutePath);
+    } catch (error) {
+      throw staleSourceError(`ShapeLex source file is unavailable: ${handle}`, error);
+    }
     const text = fileBuffer.toString(source.encoding ?? "utf8");
-    const checksum = shortHash(text, 24);
-    if (checksum !== source.checksum) {
-      throw new Error(`ShapeLex source file changed after registration: ${handle}`);
+    if (!checksumMatches(text, source.checksum)) {
+      throw staleSourceError(`ShapeLex source file changed after registration: ${handle}`);
     }
     return text;
   }
 
   #readFileSpan(source: any, handle: string) {
-    const resolved = this.#resolveWorkspaceFile(source.relativePath);
-    const fileBuffer = fs.readFileSync(resolved.absolutePath);
+    let fileBuffer: Buffer;
+    try {
+      const resolved = this.#resolveWorkspaceFile(source.relativePath);
+      fileBuffer = fs.readFileSync(resolved.absolutePath);
+    } catch (error) {
+      throw staleSourceError(`ShapeLex source file is unavailable: ${handle}`, error);
+    }
     const documentText = fileBuffer.toString("utf8");
-    if (shortHash(documentText, 24) !== source.documentChecksum) {
-      throw new Error(`ShapeLex source file changed after registration: ${handle}`);
+    if (!checksumMatches(documentText, source.documentChecksum)) {
+      throw staleSourceError(`ShapeLex source file changed after registration: ${handle}`);
     }
     const text = fileBuffer.subarray(source.startByte, source.endByte).toString("utf8");
-    if (shortHash(text, 24) !== source.checksum) {
-      throw new Error(`ShapeLex file-backed span checksum mismatch: ${handle}`);
+    if (!checksumMatches(text, source.checksum)) {
+      throw staleSourceError(`ShapeLex file-backed span checksum mismatch: ${handle}`);
     }
     return text;
+  }
+
+  #readTextDocument(source: any, handle: string) {
+    const record = this.sourceRecords.get(source.sourceId);
+    if (!record || typeof record.text !== "string") {
+      throw new Error(`ShapeLex exact text source is unavailable: ${handle}`);
+    }
+    if (!checksumMatches(record.text, source.checksum ?? record.sha256)) {
+      throw new Error(`ShapeLex text source checksum mismatch: ${handle}`);
+    }
+    return record.text;
+  }
+
+  #readTextSpan(source: any, handle: string) {
+    const documentText = this.#readTextDocument({
+      sourceId: source.sourceId,
+      checksum: source.documentChecksum
+    }, handle);
+    const bytes = Buffer.from(documentText, "utf8");
+    const text = bytes.subarray(source.startByte, source.endByte).toString("utf8");
+    if (!checksumMatches(text, source.checksum)) {
+      throw new Error(`ShapeLex text-backed span checksum mismatch: ${handle}`);
+    }
+    return text;
+  }
+
+  #fingerprintIndex(session: any) {
+    let index = this.fingerprintIndexes.get(session.id);
+    if (!index) {
+      index = new LazyFingerprintIndex();
+      this.fingerprintIndexes.set(session.id, index);
+      for (const document of session.documents.values()) {
+        this.#registerDocumentFingerprints(session, document, index);
+      }
+    }
+    return index;
+  }
+
+  #registerDocumentFingerprints(
+    _session: any,
+    document: any,
+    index = this.#fingerprintIndex(_session)
+  ) {
+    index.registerDocument({
+      id: `doc:${document.id}`,
+      textProvider: () => this.#documentTextForFingerprint(document),
+      versionProvider: () => this.#sourceVersion(document.source, document.checksum)
+    });
+  }
+
+  #materializeFingerprintWindow(
+    session: any,
+    target: any,
+    window: FingerprintMatchWindow,
+    queryText: string
+  ): { target: any; created: boolean } | undefined {
+    const targetBase = Number(target.span?.source?.startByte ?? 0);
+    const targetText = target.span
+      ? this.#spanTextForFingerprint(target.span, target.uri)
+      : this.#documentTextForFingerprint(target.document);
+    const targetBytes = Buffer.from(targetText, "utf8");
+    if (
+      !Number.isSafeInteger(window.rawByteStart)
+      || !Number.isSafeInteger(window.rawByteEnd)
+      || window.rawByteStart < 0
+      || window.rawByteEnd <= window.rawByteStart
+      || window.rawByteEnd > targetBytes.length
+    ) {
+      return undefined;
+    }
+    const startByte = targetBase + window.rawByteStart;
+    const endByte = targetBase + window.rawByteEnd;
+    const documentText = this.#documentTextForFingerprint(target.document);
+    const documentBytes = Buffer.from(documentText, "utf8");
+    const queryBytes = Buffer.from(queryText, "utf8");
+    const exactBytes = documentBytes.subarray(startByte, endByte);
+    if (
+      !exactBytes.equals(queryBytes)
+      || sourceHash(exactBytes.toString("utf8")) !== sourceHash(queryText)
+    ) {
+      return undefined;
+    }
+
+    for (const handle of target.document.handles ?? []) {
+      const span = session.spans.get(handle.spanId);
+      if (
+        span?.source?.startByte === startByte
+        && span?.source?.endByte === endByte
+        && checksumMatches(queryText, span.source.checksum)
+      ) {
+        return {
+          target: resolveFingerprintTarget(session, `span:${handle.spanId}`),
+          created: false
+        };
+      }
+    }
+
+    const metadata = this.#storeSpan(session, target.document, {
+      text: queryText,
+      label: `${target.document.label} exact fingerprint match`,
+      role: target.document.mode,
+      index: target.document.handles.length,
+      mode: target.document.mode
+    });
+    const span = session.spans.get(metadata.spanId);
+    if (!span) {
+      return undefined;
+    }
+    if (target.document.source?.kind === "file") {
+      span.source = {
+        kind: "file",
+        relativePath: target.document.source.relativePath,
+        startByte,
+        endByte,
+        checksum: metadata.checksum,
+        documentChecksum: target.document.checksum
+      };
+    } else if (target.document.source?.kind === "text") {
+      span.source = {
+        kind: "text",
+        sourceId: target.document.source.sourceId,
+        startByte,
+        endByte,
+        checksum: metadata.checksum,
+        documentChecksum: target.document.checksum
+      };
+    }
+    if (span.source) {
+      delete span.text;
+    }
+    delete span.metadata.shapes;
+    delete span.metadata.fingerprints;
+    const publicMetadata = publicHandleMetadata(metadata);
+    target.document.handles.push(publicMetadata);
+    target.document.levels["4"].handles.push({
+      uri: publicMetadata.uri,
+      label: publicMetadata.label,
+      role: publicMetadata.role,
+      index: publicMetadata.index,
+      tokenEstimate: publicMetadata.tokenEstimate,
+      risk: publicMetadata.risk
+    });
+    return {
+      target: resolveFingerprintTarget(session, `span:${metadata.spanId}`),
+      created: true
+    };
+  }
+
+  #documentTextForFingerprint(document: any) {
+    if (document.source?.kind === "file") {
+      return this.#readFileDocument(document.source, document.uri);
+    }
+    if (document.source?.kind === "text") {
+      return this.#readTextDocument(document.source, document.uri);
+    }
+    return String(document.text ?? "");
+  }
+
+  #spanTextForFingerprint(span: any, handle: string) {
+    if (span.source?.kind === "file") {
+      return this.#readFileSpan(span.source, handle);
+    }
+    if (span.source?.kind === "text") {
+      return this.#readTextSpan(span.source, handle);
+    }
+    return String(span.text ?? "");
+  }
+
+  #sourceVersion(source: any, checksum: unknown) {
+    if (source?.kind !== "file") {
+      return String(source?.checksum ?? checksum ?? "");
+    }
+    try {
+      const resolved = this.#resolveWorkspaceFile(source.relativePath);
+      const stat = fs.statSync(resolved.absolutePath);
+      return `${stat.size}:${stat.mtimeMs}`;
+    } catch {
+      return "missing";
+    }
   }
 
   #storeSpan(session, document, span) {
@@ -918,7 +1545,7 @@ export class ShapeLexEngine {
       index: span.index,
       mode: span.mode,
       charLength: span.text.length,
-      checksum: shortHash(span.text, 24),
+      checksum: sourceHash(span.text),
       tokenEstimate: estimateTokens(span.text),
       anchors: analysis.anchors,
       protectedTerms: analysis.protectedTerms,
@@ -936,23 +1563,39 @@ export class ShapeLexEngine {
     return metadata;
   }
 
+  #resolveLegacyFileSource(relativePath: string, document: unknown): Uint8Array | undefined {
+    try {
+      const resolved = this.#resolveWorkspaceFile(relativePath);
+      if (resolved.byteLength > MAX_TEXT_BYTES) {
+        return undefined;
+      }
+      const bytes = fs.readFileSync(resolved.absolutePath);
+      const text = bytes.toString("utf8");
+      if (!Buffer.from(text, "utf8").equals(bytes)) {
+        return undefined;
+      }
+      const legacyChecksum = isPlainObject(document) && typeof document.checksum === "string"
+        ? document.checksum
+        : undefined;
+      return legacyChecksum && checksumMatches(text, legacyChecksum) ? bytes : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   #loadStore() {
-    if (!this.persistent || !this.storePath || !fs.existsSync(this.storePath)) {
+    if (!this.storeCoordinator) {
       return;
     }
+    const snapshot = this.storeCoordinator.snapshot({ refresh: false });
+    this.#hydrateSessions(snapshot.sessions, snapshot.sources);
+  }
 
-    const stat = fs.statSync(this.storePath);
-    if (stat.size > this.maxStoreBytes) {
-      throw new Error(`ShapeLex store exceeds maximum supported size: ${this.storePath}`);
-    }
-
-    const raw = fs.readFileSync(this.storePath, "utf8");
-    const store = JSON.parse(raw);
-    if (store.version !== STORE_VERSION || !Array.isArray(store.sessions)) {
-      throw new Error(`Unsupported ShapeLex store format: ${this.storePath}`);
-    }
-
-    for (const item of store.sessions) {
+  #hydrateSessions(storedSessions: any[], storedSources: StoreSourceRecord[] = []) {
+    this.sessions.clear();
+    this.fingerprintIndexes.clear();
+    this.sourceRecords = new Map(storedSources.map((source) => [source.sourceId, source]));
+    for (const item of storedSessions) {
       const id = normalizeSessionId(item.id);
       const session = {
         id,
@@ -976,21 +1619,27 @@ export class ShapeLexEngine {
       }
       for (const document of session.documents.values()) {
         hydrateStoredDocument(session, document);
+        this.#adoptStoredSource(session, document);
       }
       this.sessions.set(session.id, session);
+      this.#fingerprintIndex(session);
     }
   }
 
+  #refreshStoreIfChanged() {
+    if (!this.storeCoordinator || !this.storeCoordinator.refreshIfChanged()) {
+      return false;
+    }
+    const snapshot = this.storeCoordinator.snapshot({ refresh: false });
+    this.#hydrateSessions(snapshot.sessions, snapshot.sources);
+    return true;
+  }
+
   #saveStore() {
-    if (!this.persistent || !this.storePath || !this.storageDir) {
+    if (!this.storeCoordinator) {
       return;
     }
-
-    fs.mkdirSync(this.storageDir, { recursive: true });
-    const payload = {
-      version: STORE_VERSION,
-      savedAt: new Date().toISOString(),
-      sessions: [...this.sessions.values()].map((session) => ({
+    const sessions = [...this.sessions.values()].map((session) => ({
         id: session.id,
         createdAt: session.createdAt,
         lastAccessedAt: session.lastAccessedAt,
@@ -999,22 +1648,75 @@ export class ShapeLexEngine {
         documents: [...session.documents.values()].map(serializeDocumentForStore),
         spans: [...session.spans.values()].map(serializeSpanForStore),
         usageEvents: session.usageEvents ?? []
-      }))
-    };
-    const tmpPath = `${this.storePath}.${process.pid}.tmp`;
-    const serialized = JSON.stringify(payload);
-    const storeBytes = Buffer.byteLength(serialized, "utf8");
-    if (storeBytes > this.maxStoreBytes) {
-      throw new Error(`ShapeLex store would exceed the configured maximum size (${storeBytes} > ${this.maxStoreBytes} bytes). Prune memory or raise SHAPELEX_MAX_STORE_MB.`);
-    }
+      }));
+    const sources = this.#sourceRecordsForSessions(sessions);
     try {
-      fs.writeFileSync(tmpPath, serialized, { encoding: "utf8", mode: 0o600 });
-      fs.renameSync(tmpPath, this.storePath);
+      this.storeCoordinator.transact((draft) => {
+        draft.sessions = sessions;
+        draft.sources = sources;
+        draft.index = { strategy: "lazy-memory-only", state: "cold" };
+      });
     } catch (error) {
-      if (fs.existsSync(tmpPath)) {
-        fs.rmSync(tmpPath, { force: true });
+      if (error instanceof StoreRevisionConflictError) {
+        this.storeCoordinator.refreshIfChanged();
+        const snapshot = this.storeCoordinator.snapshot({ refresh: false });
+        this.#hydrateSessions(snapshot.sessions, snapshot.sources);
       }
       throw error;
+    }
+  }
+
+  #sourceRecordsForSessions(sessions: readonly any[]) {
+    const originsBySource = new Map<string, StoreSourceRecord["origins"]>();
+    for (const session of sessions) {
+      for (const document of session.documents ?? []) {
+        const sourceId = document.source?.sourceId;
+        if (typeof sourceId !== "string") {
+          continue;
+        }
+        const origins = originsBySource.get(sourceId) ?? [];
+        const origin = document.source?.kind === "file"
+          ? {
+              kind: "file" as const,
+              sessionId: String(session.id),
+              documentId: String(document.id),
+              relativePath: String(document.source.relativePath)
+            }
+          : {
+              kind: "text" as const,
+              sessionId: String(session.id),
+              documentId: String(document.id)
+            };
+        origins.push(origin);
+        originsBySource.set(sourceId, origins);
+      }
+    }
+
+    return [...originsBySource.entries()].map(([sourceId, origins]) => {
+      const source = this.sourceRecords.get(sourceId);
+      if (!source) {
+        throw new Error(`ShapeLex source record is unavailable: ${sourceId}`);
+      }
+      return {
+        ...source,
+        origins
+      };
+    }).sort((left, right) => left.sha256.localeCompare(right.sha256));
+  }
+
+  #dropUnusedSourceRecords() {
+    const used = new Set<string>();
+    for (const session of this.sessions.values()) {
+      for (const document of session.documents.values()) {
+        if (typeof document.source?.sourceId === "string") {
+          used.add(document.source.sourceId);
+        }
+      }
+    }
+    for (const sourceId of this.sourceRecords.keys()) {
+      if (!used.has(sourceId)) {
+        this.sourceRecords.delete(sourceId);
+      }
     }
   }
 }
@@ -1291,6 +1993,17 @@ function publicHandleMetadata(handle: any) {
   };
 }
 
+function compactMatchMetadata(match: any) {
+  return {
+    uri: match.uri,
+    matchKind: match.matchKind,
+    score: match.score,
+    exact: Boolean(match.exact),
+    mustExpand: Boolean(match.mustExpand),
+    criticalDiff: Boolean(match.criticalDiff)
+  };
+}
+
 function serializeDocumentForStore(document: any) {
   const { handles: _handles, ...storedDocument } = document;
   const level1 = { ...(document.levels?.["1"] ?? {}) };
@@ -1310,7 +2023,7 @@ function serializeDocumentForStore(document: any) {
 }
 
 function serializeSpanForStore(span: any) {
-  if (span.source?.kind !== "file") {
+  if (!["file", "text"].includes(span.source?.kind)) {
     return span;
   }
 
@@ -1327,7 +2040,8 @@ function serializeSpanForStore(span: any) {
       risk: span.metadata.risk
     },
     source: {
-      kind: "file",
+      kind: span.source.kind,
+      sourceId: span.source.sourceId,
       startByte: span.source.startByte,
       endByte: span.source.endByte
     }
@@ -1354,6 +2068,13 @@ function hydrateStoredSpan(session: any, span: any, document: any) {
       throw new Error(`ShapeLex file-backed span has no file-backed document: ${span.metadata.spanId}`);
     }
     span.source.relativePath ??= document.source.relativePath;
+    span.source.checksum ??= span.metadata.checksum;
+    span.source.documentChecksum ??= document.checksum;
+  } else if (span.source?.kind === "text") {
+    if (document.source?.kind !== "text") {
+      throw new Error(`ShapeLex text-backed span has no text-backed document: ${span.metadata.spanId}`);
+    }
+    span.source.sourceId ??= document.source.sourceId;
     span.source.checksum ??= span.metadata.checksum;
     span.source.documentChecksum ??= document.checksum;
   }
@@ -1421,8 +2142,17 @@ function summarizeUsageEvents(events: any[]) {
   };
 }
 
-function storedSpanBytes(session: any) {
-  return [...session.spans.values()].reduce(
+function storedSpanBytes(session: any, sourceRecords?: ReadonlyMap<string, StoreSourceRecord>) {
+  const textSourceIds = new Set(
+    [...session.documents.values()]
+      .filter((document) => document.source?.kind === "text")
+      .map((document) => document.source.sourceId)
+  );
+  const sourceBytes = [...textSourceIds].reduce(
+    (sum, sourceId) => sum + Number(sourceRecords?.get(sourceId)?.byteLength ?? 0),
+    0
+  );
+  return sourceBytes + [...session.spans.values()].reduce(
     (sum, span) => sum + (typeof span.text === "string" ? Buffer.byteLength(span.text, "utf8") : 0),
     0
   );
@@ -1757,6 +2487,82 @@ function scoreDocument(document: any, queryTokens: any[]) {
   return queryTokens.reduce((score, token) => score + (haystack.includes(token) ? 1 : 0), 0);
 }
 
+function resolveFingerprintTarget(session: any, indexId: string) {
+  if (indexId.startsWith("doc:")) {
+    const document = session.documents.get(indexId.slice(4));
+    return document ? { document, uri: document.uri, metadata: undefined } : undefined;
+  }
+  if (!indexId.startsWith("span:")) {
+    return undefined;
+  }
+  const spanId = indexId.slice(5);
+  const span = session.spans.get(spanId);
+  const document = session.documents.get(session.spanToDocument.get(spanId));
+  return span && document
+    ? { document, span, uri: span.metadata.uri, metadata: span.metadata }
+    : undefined;
+}
+
+function fingerprintSearchResult(
+  target: any,
+  result: MatchResult,
+  alignment?: FingerprintMatchAlignment
+) {
+  const risk = target.metadata?.risk ?? target.document.risk;
+  return {
+    documentId: target.document.id,
+    uri: target.uri,
+    label: target.metadata?.label ?? target.document.label,
+    mode: target.document.mode,
+    score: result.score,
+    matchKind: result.matchKind,
+    exact: result.exact,
+    mustExpand: result.mustExpand || Boolean(risk?.mustExpand),
+    criticalDiff: result.criticalDiff,
+    metrics: result.metrics,
+    ...(alignment ? {
+      alignment: {
+        dominantVotes: alignment.dominantVotes,
+        usefulVotes: alignment.usefulVotes,
+        coherentPeaks: alignment.coherentPeaks
+      }
+    } : {}),
+    risk,
+    bestAnchors: (target.metadata?.anchors ?? target.document.levels[2].anchors).slice(0, 6),
+    criticalExtracts: target.document.levels[3].criticalExtracts.slice(0, 3)
+  };
+}
+
+function downgradeUnmaterializedExactWindow(result: MatchResult): MatchResult {
+  return {
+    ...result,
+    matchKind: "related",
+    score: Math.min(result.score, 0.999999),
+    exact: false,
+    mustExpand: true
+  };
+}
+
+function comparePublicSearchResults(left: any, right: any) {
+  return (
+    publicMatchPriority(right.matchKind) - publicMatchPriority(left.matchKind)
+    || Number(right.score ?? 0) - Number(left.score ?? 0)
+    || String(left.uri).localeCompare(String(right.uri))
+  );
+}
+
+function publicMatchPriority(matchKind: string) {
+  return {
+    exact: 7,
+    normalized_equal: 6,
+    strong_related: 5,
+    related_reordered: 4,
+    related: 3,
+    keyword: 2,
+    unrelated: 1
+  }[matchKind] ?? 0;
+}
+
 function parseShapeLexUri(uri) {
   const value = String(uri);
   let match = value.match(/^sx:\/\/([A-Za-z0-9._-]{1,80})\/span\/(span_\d+)$/);
@@ -1808,8 +2614,7 @@ function assertDocumentIntegrity(document: any, handle: any, text = document.tex
   if (!document.checksum) {
     return;
   }
-  const actual = shortHash(text, 24);
-  if (actual !== document.checksum) {
+  if (!checksumMatches(text, document.checksum)) {
     throw new Error(`ShapeLex document checksum mismatch: ${handle}`);
   }
 }
@@ -1818,8 +2623,7 @@ function assertSpanIntegrity(span: any, handle: any, text = span.text) {
   if (!span.metadata?.checksum) {
     return;
   }
-  const actual = shortHash(text, 24);
-  if (actual !== span.metadata.checksum) {
+  if (!checksumMatches(text, span.metadata.checksum)) {
     throw new Error(`ShapeLex span checksum mismatch: ${handle}`);
   }
 }
@@ -1898,6 +2702,26 @@ function localSignature(token) {
 
 function shortHash(value, hexChars = 16) {
   return crypto.createHash("sha256").update(String(value)).digest("hex").slice(0, hexChars);
+}
+
+function sourceHash(value: string) {
+  return crypto.createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function checksumMatches(value: string, expected: unknown) {
+  if (typeof expected !== "string" || !/^[a-f0-9]{16,64}$/i.test(expected)) {
+    return false;
+  }
+  return sourceHash(value).slice(0, expected.length) === expected.toLowerCase();
+}
+
+function normalizeWorkspaceIdentity(workspaceRoot: string) {
+  const normalized = path.resolve(workspaceRoot).split(path.sep).join("/");
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+}
+
+function isPlainObject(value: unknown): value is Record<string, any> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function charClass(char) {
@@ -1996,7 +2820,7 @@ function assertMessage(message, index) {
 }
 
 function normalizeSessionId(sessionId) {
-  const id = String(sessionId || DEFAULT_SESSION_ID);
+  const id = sessionId === undefined ? DEFAULT_SESSION_ID : String(sessionId);
   if (!SESSION_ID_PATTERN.test(id)) {
     throw new TypeError("sessionId must be 1-80 characters using only letters, numbers, dot, underscore, or hyphen");
   }

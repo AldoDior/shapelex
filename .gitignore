@@ -22,6 +22,8 @@ dist/
 build/
 coverage/
 .nyc_output/
+.stryker-tmp/
+reports/mutation/
 
 # Caches and temporary files
 .cache/
@@ -44,6 +46,7 @@ temp/
 .shapelex-codex/
 .shapelex-cursor/
 .shapelex-claude/
+.shapelex-evals/
 
 # Local/private research notes
 research/local/

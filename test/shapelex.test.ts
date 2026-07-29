@@ -197,6 +197,42 @@ test("file-backed compression rejects paths outside the workspace", () => {
   );
 });
 
+test("file-backed compression reports each workspace path boundary precisely", (context) => {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "shapelex-file-path-contract-"));
+  context.after(() => fs.rmSync(parent, { recursive: true, force: true }));
+  const workspaceRoot = path.join(parent, "workspace");
+  const directoryPath = path.join(workspaceRoot, "directory");
+  fs.mkdirSync(directoryPath, { recursive: true });
+  const engine = new ShapeLexEngine({ workspaceRoot, persistent: false });
+
+  const cases = [
+    {
+      sourcePath: "missing.txt",
+      message: "ShapeLex source file does not exist: missing.txt"
+    },
+    {
+      sourcePath: ".",
+      message: "ShapeLex sourcePath must identify a file inside the workspace"
+    },
+    {
+      sourcePath: "..",
+      message: "ShapeLex sourcePath must stay inside the configured workspace root"
+    },
+    {
+      sourcePath: "directory",
+      message: "ShapeLex sourcePath is not a file: directory"
+    }
+  ];
+
+  for (const { sourcePath, message } of cases) {
+    assert.throws(
+      () => engine.compressFile({ sessionId: "boundary", sourcePath }),
+      (error: unknown) => error instanceof Error && error.message === message,
+      `unexpected error contract for ${sourcePath}`
+    );
+  }
+});
+
 test("file-backed compression rejects non-UTF-8 files", () => {
   const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "shapelex-file-encoding-"));
   fs.writeFileSync(path.join(workspaceRoot, "binary.dat"), Buffer.from([0xff, 0xfe, 0xfd]));
