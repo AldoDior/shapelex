@@ -1,0 +1,72 @@
+name: ShapeLex v0.6 Branch Verification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v06-branch-verification-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  torture:
+    name: Torture and property tests (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22.x, 24.x]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck:v06
+      - name: Run 10,000-case properties and torture scenarios
+        run: npm run test:v06:nightly
+        env:
+          SHAPELEX_TEST_PROFILE: "nightly"
+          SHAPELEX_PROPERTY_RUNS: "10000"
+          SHAPELEX_PROPERTY_SEED: "20260728"
+          SHAPELEX_TORTURE: "1"
+
+  platform:
+    name: Persistence and paths (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+          cache: npm
+      - run: npm ci
+      - name: Run platform and multiprocess torture scenarios
+        run: npm run test:v06:nightly
+        env:
+          SHAPELEX_TEST_PROFILE: "nightly"
+          SHAPELEX_PROPERTY_RUNS: "2000"
+          SHAPELEX_PROPERTY_SEED: "20260728"
+          SHAPELEX_TORTURE: "1"
+
+  mutation:
+    name: Safety-critical mutation testing
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+          cache: npm
+      - run: npm ci
+      - run: npm run mutation:v06:full
