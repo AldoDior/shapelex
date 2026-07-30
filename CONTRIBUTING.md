@@ -10,6 +10,8 @@ ShapeLex is a local MCP memory layer. The main rule is simple: compressed memory
 npm install
 npm run doctor
 npm test
+npm run typecheck:v06
+npm run coverage:v06
 ```
 
 ## Development
@@ -22,9 +24,11 @@ npm test
 
 ## Architecture Notes
 
-- `src/shapelex.ts` contains the current engine and storage implementation.
+- `src/shapelex.ts` orchestrates compression, retrieval, and exact expansion.
+- `src/fingerprint/` contains the strictly typed deterministic lexical engine and lazy index.
+- `src/storage/` contains transactional store v2, migration, and locking.
 - `src/mcp-server.ts` exposes the MCP JSON-RPC surface.
 - `src/shapelex-doctor.ts` validates local setup and project MCP configs.
 - `test/` uses Node's built-in test runner.
 
-The current storage strategy is a single local JSON file. It is intentionally simple for personal use. Larger deployments should move toward one-file-per-document storage or SQLite before supporting very large memory stores.
+The persistent strategy is one private transactional JSON v2 store. Fingerprint postings remain bounded and memory-only. Do not introduce SQLite, embeddings, workspace crawling, or network dependencies without a measured need and an explicit design review.

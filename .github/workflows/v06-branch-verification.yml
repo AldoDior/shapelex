@@ -51,15 +51,36 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Run platform and multiprocess torture scenarios
-        run: npm run test:v06:nightly
+        run: npm run test:v06:platform
         env:
           SHAPELEX_TEST_PROFILE: "nightly"
           SHAPELEX_PROPERTY_RUNS: "2000"
           SHAPELEX_PROPERTY_SEED: "20260728"
           SHAPELEX_TORTURE: "1"
 
-  mutation:
-    name: Safety-critical mutation testing
+  mutation-gate:
+    name: Safety-critical mutation gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+          cache: npm
+      - run: npm ci
+      - run: npm run mutation:v06
+      - name: Upload focused mutation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shapelex-v06-mutation-focused
+          path: coverage/v06/mutation.html
+          if-no-files-found: warn
+          retention-days: 14
+
+  mutation-audit:
+    name: Full mutation audit (diagnostic)
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -70,3 +91,11 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run mutation:v06:full
+      - name: Upload full mutation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shapelex-v06-mutation-full
+          path: coverage/v06/mutation-full.html
+          if-no-files-found: warn
+          retention-days: 14

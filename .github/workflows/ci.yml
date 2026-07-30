@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [20.x, 22.x, 24.x]
+        node-version: [22.x, 24.x]
 
     steps:
       - name: Checkout
@@ -38,11 +38,28 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Strict v0.6 typecheck
+        run: npm run typecheck:v06
+
       - name: Lint
         run: npm run lint
 
       - name: Test
         run: npm test
+
+      - name: Fingerprint and store coverage gates
+        if: matrix.node-version == '24.x'
+        run: npm run coverage:v06
+
+      - name: Global coverage gates
+        if: matrix.node-version == '24.x'
+        run: npm run coverage:global
+
+      - name: Short production performance gates
+        if: matrix.node-version == '24.x'
+        run: npm run build && node --test dist/test/v06/performance.nightly.test.js
+        env:
+          SHAPELEX_TEST_PROFILE: "nightly"
 
       - name: Smoke eval
         run: npm run smoke
@@ -58,3 +75,80 @@ jobs:
 
       - name: Package dry run
         run: npm pack --dry-run --cache ./.npm-cache
+
+  platform:
+    name: Platform contract (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test paths, persistence, stdio, and Unicode behavior
+        run: npm test
+
+  package:
+    name: Packed consumer (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22.x, 24.x]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build and pack inspected tarball
+        run: npm pack --cache ./.npm-cache
+
+      - name: Install tarball in a clean consumer
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/shapelex-consumer"
+          cd "$RUNNER_TEMP/shapelex-consumer"
+          npm init -y
+          PACKAGE_VERSION="$(node -p "require('$GITHUB_WORKSPACE/package.json').version")"
+          npm install "$GITHUB_WORKSPACE/shapelex-mcp-$PACKAGE_VERSION.tgz"
+          ./node_modules/.bin/shapelex-mcp --doctor
+          cp "$GITHUB_WORKSPACE/test/fixtures/package-consumer.ts.txt" ./package-consumer.ts
+          "$GITHUB_WORKSPACE/node_modules/.bin/tsc" \
+            --noEmit \
+            --target ES2022 \
+            --module NodeNext \
+            --moduleResolution NodeNext \
+            ./package-consumer.ts
+
+      - name: Verify packed MCP initialization
+        shell: bash
+        run: |
+          cd "$RUNNER_TEMP/shapelex-consumer"
+          PACKAGE_VERSION="$(node -p "require('$GITHUB_WORKSPACE/package.json').version")"
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
+            | timeout 10s ./node_modules/.bin/shapelex-mcp \
+            | grep "\"version\":\"$PACKAGE_VERSION\""

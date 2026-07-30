@@ -1,6 +1,6 @@
 import process from "node:process";
-import readline from "node:readline";
 import { DEFAULT_MAX_STORE_BYTES, ShapeLexEngine } from "./shapelex.js";
+import { PACKAGE_VERSION } from "./version.js";
 
 export function createEngineFromEnvironment(environment: any = process.env, cwd = process.cwd()) {
   const persistent = environment.SHAPELEX_PERSIST !== "0";
@@ -15,6 +15,7 @@ export function createEngineFromEnvironment(environment: any = process.env, cwd 
 const engine = createEngineFromEnvironment();
 
 const defaultToolset = normalizeToolset(process.env.SHAPELEX_TOOLSET);
+const DEFAULT_MAX_JSON_RPC_LINE_CHARACTERS = 16 * 1024 * 1024;
 const serverInstructions = [
   "ShapeLex is agent-driven compressed navigable memory.",
   "Use ShapeLex proactively for long pasted context, repeated project notes, older conversation history, large docs, logs, or code snippets; do not wait for the user to say \"use ShapeLex\".",
@@ -168,27 +169,90 @@ const tools = [
   }
 ];
 
-export function startMcpServer({ input = process.stdin, output = process.stdout }: any = {}) {
-  const rl = readline.createInterface({ input });
-  const handle = createJsonRpcHandler(engine, { toolset: defaultToolset });
+export function startMcpServer({
+  input = process.stdin,
+  output = process.stdout,
+  maxLineCharacters = DEFAULT_MAX_JSON_RPC_LINE_CHARACTERS,
+  targetEngine = engine,
+  toolset = defaultToolset
+}: any = {}) {
+  if (!Number.isSafeInteger(maxLineCharacters) || maxLineCharacters <= 0) {
+    throw new RangeError("maxLineCharacters must be a positive safe integer");
+  }
+  const handle = createJsonRpcHandler(targetEngine, { toolset });
+  let buffer = "";
+  let discardingOversizedLine = false;
+  let queue = Promise.resolve();
+  let resolveClosed: () => void;
+  const closed = new Promise<void>((resolve) => {
+    resolveClosed = resolve;
+  });
+  input.setEncoding?.("utf8");
 
-  rl.on("line", async (line) => {
-    if (!line.trim()) {
-      return;
-    }
-
-    let request;
-    try {
-      request = JSON.parse(line);
-      const response = await handle(request);
-      if (response) {
-        output.write(`${JSON.stringify(response)}\n`);
+  const enqueueLine = (line: string | undefined) => {
+    queue = queue.then(async () => {
+      if (line === undefined) {
+        output.write(`${JSON.stringify(errorResponse(null, new JsonRpcError(-32600, "Invalid Request")))}\n`);
+        return;
       }
-    } catch (error) {
-      const id = request?.id ?? null;
-      output.write(`${JSON.stringify(errorResponse(id, error))}\n`);
+      if (!line.trim()) {
+        return;
+      }
+
+      let request;
+      try {
+        request = JSON.parse(line);
+        const response = await handle(request);
+        if (response) {
+          output.write(`${JSON.stringify(response)}\n`);
+        }
+      } catch (error) {
+        const id = request?.id ?? null;
+        const rpcError = error instanceof SyntaxError
+          ? new JsonRpcError(-32700, "Parse error")
+          : error;
+        output.write(`${JSON.stringify(errorResponse(id, rpcError))}\n`);
+      }
+    });
+  };
+
+  input.on("data", (rawChunk: string | Buffer) => {
+    const chunk = typeof rawChunk === "string" ? rawChunk : rawChunk.toString("utf8");
+    let offset = 0;
+    while (offset < chunk.length) {
+      const newline = chunk.indexOf("\n", offset);
+      const end = newline === -1 ? chunk.length : newline;
+      const segmentLength = end - offset;
+      if (
+        !discardingOversizedLine
+        && buffer.length + segmentLength <= maxLineCharacters
+      ) {
+        buffer += chunk.slice(offset, end);
+      } else {
+        buffer = "";
+        discardingOversizedLine = true;
+      }
+
+      if (newline === -1) {
+        break;
+      }
+      enqueueLine(discardingOversizedLine ? undefined : buffer.replace(/\r$/u, ""));
+      buffer = "";
+      discardingOversizedLine = false;
+      offset = newline + 1;
     }
   });
+
+  input.on("end", () => {
+    if (discardingOversizedLine) {
+      enqueueLine(undefined);
+    } else if (buffer.length > 0) {
+      enqueueLine(buffer.replace(/\r$/u, ""));
+    }
+    void queue.finally(resolveClosed!);
+  });
+
+  return { closed };
 }
 
 export const handleJsonRpc = createJsonRpcHandler(engine);
@@ -197,22 +261,35 @@ export function createJsonRpcHandler(targetEngine: ShapeLexEngine, { toolset = "
   const activeTools = toolsForToolset(normalizeToolset(toolset));
 
   return async function handle(request: any): Promise<any> {
+    if (!request || typeof request !== "object" || Array.isArray(request)) {
+      return errorResponse(null, new JsonRpcError(-32600, "Invalid Request"));
+    }
     if (request.jsonrpc !== "2.0") {
-      return errorResponse(request.id ?? null, new Error("Expected JSON-RPC 2.0 request"));
+      return errorResponse(request.id ?? null, new JsonRpcError(-32600, "Invalid Request"));
+    }
+    if (typeof request.method !== "string") {
+      return errorResponse(request.id ?? null, new JsonRpcError(-32600, "Invalid Request"));
     }
 
+    const isNotification = request.id === undefined;
     if (request.method?.startsWith("notifications/")) {
       return undefined;
     }
 
     try {
       const result = await dispatch(targetEngine, activeTools, request.method, request.params ?? {});
+      if (isNotification) {
+        return undefined;
+      }
       return {
         jsonrpc: "2.0",
         id: request.id,
         result
       };
     } catch (error) {
+      if (isNotification) {
+        return undefined;
+      }
       return errorResponse(request.id, error);
     }
   };
@@ -226,12 +303,12 @@ async function dispatch(targetEngine: ShapeLexEngine, activeTools: any[], method
         capabilities: {
           tools: {},
           resources: {
-            listChanged: true
+            listChanged: false
           }
         },
         serverInfo: {
           name: "shapelex-mcp",
-          version: "0.4.0"
+          version: PACKAGE_VERSION
         },
         instructions: serverInstructions
       };
@@ -246,7 +323,7 @@ async function dispatch(targetEngine: ShapeLexEngine, activeTools: any[], method
     case "resources/read":
       return targetEngine.readResource(params);
     default:
-      throw new Error(`Unsupported method: ${method}`);
+      throw new JsonRpcError(-32601, `Method not found: ${method}`);
   }
 }
 
@@ -258,12 +335,14 @@ function callTool(targetEngine: ShapeLexEngine, activeTools: any[], params: any)
   if (typeof name !== "string") {
     throw new TypeError("tools/call params.name must be a string");
   }
-  if (!activeTools.some((tool) => tool.name === name)) {
-    throw new Error(`Tool is not available in the active ShapeLex toolset: ${name}`);
+  const tool = activeTools.find((candidate) => candidate.name === name);
+  if (!tool) {
+    throw new TypeError(`Tool is not available in the active ShapeLex toolset: ${name}`);
   }
   if (!args || typeof args !== "object" || Array.isArray(args)) {
     throw new TypeError("tools/call params.arguments must be an object");
   }
+  validateSchemaValue(args, tool.inputSchema, "tools/call params.arguments");
   let result;
 
   switch (name) {
@@ -342,6 +421,8 @@ function renderStructuredContent(name: string, result: any) {
       savingsRatio: result.savingsRatio,
       compressionSkipped: Boolean(result.compressionSkipped),
       skipReason: result.skipReason,
+      deduplicated: Boolean(result.deduplicated),
+      matchKind: result.matchKind,
       budgetTokens: result.budgetTokens,
       withinBudget: result.withinBudget
     };
@@ -351,6 +432,7 @@ function renderStructuredContent(name: string, result: any) {
       sessionId: result.sessionId,
       query: result.query,
       detail: result.detail,
+      searchComplete: result.searchComplete,
       results: result.results,
       contextText: result.contextText,
       tokenEstimate: result.tokenEstimate,
@@ -396,14 +478,93 @@ function inspectShapeLex(targetEngine: ShapeLexEngine, args: any): any {
 }
 
 function errorResponse(id: any, error: any): any {
+  const code = error instanceof JsonRpcError
+    ? error.rpcCode
+    : error instanceof TypeError
+      ? -32602
+      : ["STORE_BUSY", "STORE_REVISION_CONFLICT"].includes(error?.code)
+        ? -32001
+        : error?.code === "STALE_SOURCE"
+          ? -32002
+          : -32000;
   return {
     jsonrpc: "2.0",
     id,
     error: {
-      code: -32000,
-      message: error instanceof Error ? error.message : String(error)
+      code,
+      message: publicErrorMessage(code, error)
     }
   };
+}
+
+function publicErrorMessage(code: number, error: unknown): string {
+  if (code === -32001) {
+    return "ShapeLex memory is busy; retry the operation.";
+  }
+  if (code === -32002) {
+    return "ShapeLex exact source is stale or unavailable.";
+  }
+  if (code === -32000) {
+    return "ShapeLex could not complete the operation.";
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
+class JsonRpcError extends Error {
+  rpcCode: number;
+
+  constructor(rpcCode: number, message: string) {
+    super(message);
+    this.name = "JsonRpcError";
+    this.rpcCode = rpcCode;
+  }
+}
+
+function validateSchemaValue(value: any, schema: any, pathLabel: string): void {
+  if (schema.type === "object") {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new TypeError(`${pathLabel} must be an object`);
+    }
+    for (const required of schema.required ?? []) {
+      if (!(required in value)) {
+        throw new TypeError(`${pathLabel}.${required} is required`);
+      }
+    }
+    if (schema.additionalProperties === false) {
+      const allowed = new Set(Object.keys(schema.properties ?? {}));
+      const unknown = Object.keys(value).find((key) => !allowed.has(key));
+      if (unknown) {
+        throw new TypeError(`${pathLabel}.${unknown} is not allowed`);
+      }
+    }
+    for (const [key, child] of Object.entries(schema.properties ?? {})) {
+      if (key in value) {
+        validateSchemaValue(value[key], child, `${pathLabel}.${key}`);
+      }
+    }
+    if (Array.isArray(schema.oneOf)) {
+      const matches = schema.oneOf.filter((candidate: any) => (
+        (candidate.required ?? []).every((required: string) => required in value)
+      )).length;
+      if (matches !== 1) {
+        throw new TypeError(`${pathLabel} must match exactly one allowed input form`);
+      }
+    }
+    return;
+  }
+  if (schema.type === "array") {
+    if (!Array.isArray(value)) {
+      throw new TypeError(`${pathLabel} must be an array`);
+    }
+    value.forEach((item, index) => validateSchemaValue(item, schema.items ?? {}, `${pathLabel}[${index}]`));
+    return;
+  }
+  if (schema.type && typeof value !== schema.type) {
+    throw new TypeError(`${pathLabel} must be a ${schema.type}`);
+  }
+  if (Array.isArray(schema.enum) && !schema.enum.includes(value)) {
+    throw new TypeError(`${pathLabel} must be one of: ${schema.enum.join(", ")}`);
+  }
 }
 
 function maxStoreBytesFromEnv(value: string | undefined) {

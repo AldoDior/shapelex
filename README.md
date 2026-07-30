@@ -18,6 +18,8 @@ ShapeLex is local-only by design:
 
 ShapeLex mainly saves input tokens. It reduces old context that the model has to reread. It does not automatically shorten the model's final answer; for output tokens, tell the agent to answer briefly and spend tokens on code, tests, and exact next steps.
 
+ShapeLex v0.6 also recognizes text it has already seen. Deterministic lexical fingerprints locate exact, relocated, reordered, and closely related passages. Fingerprints only find candidates: ShapeLex reports `exact` only after the original UTF-8 bytes and full SHA-256 digest both match. Similar text is always advisory.
+
 ShapeLex should be agent-driven after setup. You should not need to say "use ShapeLex" every time. Add the persistent instruction from [docs/AGENT_INSTRUCTIONS.md](docs/AGENT_INSTRUCTIONS.md) to your AI app or project rules when possible; then the agent should decide when ShapeLex helps, briefly tell you the first time it compresses context, and keep manual commands as a fallback.
 
 The agent should also guide memory hygiene. It should recommend lean mode for normal work, suggest full mode only for deeper inspection, suggest a new session when the project or task changes, and suggest cleanup when memory becomes old, noisy, unrelated, or confusing. Cleanup should be previewed first and confirmed before deleting memory.
@@ -27,7 +29,7 @@ The agent should also guide memory hygiene. It should recommend lean mode for no
 You need Node.js first. Node includes `npm` and `npx`, which are the commands used to run ShapeLex.
 
 1. Install Node.js from [nodejs.org](https://nodejs.org/).
-2. Choose the LTS version unless you already know you need another version.
+2. Choose Node.js 22 LTS or newer.
 3. Open a terminal.
    - Windows: PowerShell or Windows Terminal.
    - macOS: Terminal.
@@ -159,7 +161,7 @@ ShapeLex stores exact source text in a private local store and gives the agent c
 Example handle:
 
 ```text
-sx://default/doc/abc123/span/def456
+sx://default/span/span_1
 ```
 
 That handle is a pointer. It is not the full text. If exact wording, numbers, code, commands, negations, or user instructions matter, the agent should expand the handle before relying on it.
@@ -171,6 +173,14 @@ ShapeLex gives agents a hierarchy:
 - Level 2: model-readable anchors and protected terms. Internal fingerprints are not sent to the model.
 - Level 3: critical previews with explicit `exact`, `truncated`, and source-offset metadata.
 - Level 4: exact expandable handles.
+
+### Fingerprint retrieval
+
+The `lexical-v1` profile combines strict Unicode-aware token fingerprints with a recall-only character channel. Its inverted index is built lazily in memory only for text and files explicitly registered with ShapeLex. It never crawls the workspace and never persists fingerprint postings.
+
+Repeated or low-entropy hashes are suppressed, and query, candidate, verification, and memory work are bounded. When a limit may reduce recall, results report `searchComplete: false`.
+
+Match kinds are `exact`, `normalized_equal`, `strong_related`, `related_reordered`, `related`, `keyword`, and `unrelated`. Only `exact` content may be automatically deduplicated. Changed negations, numbers, dates, operators, booleans, destructive verbs, and English or Spanish instructions prevent unsafe strong matching.
 
 ## Token Accounting
 
@@ -199,7 +209,7 @@ Use `text` for transient pasted material and `sourcePath` for files already pres
 
 ### Storage choices
 
-Persistent memory remains the default so `sx://` handles survive MCP server restarts. The store is now written as a compact index. With `sourcePath`, that index contains checksums, byte ranges, navigation data, and risk metadata—not a second full copy of the source file.
+Persistent memory remains the default so `sx://` handles survive MCP server restarts. Store format v2 uses revisions, a bounded process lock, atomic replacement, full SHA-256 records, and automatic migration from v1. Duplicate pasted text is kept once as an immutable content-addressed source while retaining separate public handles. With `sourcePath`, the store contains checksums, byte ranges, navigation data, and risk metadata—not a second full copy of the workspace file.
 
 For work that must leave no ShapeLex store on disk, run the MCP server with:
 
@@ -238,11 +248,25 @@ Useful commands:
 ```bash
 npm run doctor
 npm test
+npm run typecheck:v06
+npm run coverage:v06
 npm run smoke
 npm run e2e
 npm run agent-eval
 npm run benchmark
 ```
+
+Scheduled verification additionally runs 10,000-case properties, low-entropy torture, multi-process persistence stress, platform checks, and targeted mutation testing.
+
+Optional live provider measurement is separate from CI:
+
+```bash
+SHAPELEX_PROVIDER_ENDPOINT=https://your-private-evaluator.example/run \
+SHAPELEX_PROVIDER_API_KEY=... \
+npm run eval:provider -- cases.json .shapelex-evals/provider-report.json
+```
+
+Credentials are read only from environment variables. Request and input-token caps default to 30 requests and 100,000 input tokens per request.
 
 ## Simulation Results
 
@@ -250,6 +274,8 @@ Before publishing, the repo was tested with deterministic raw-context versus Sha
 
 Latest local run:
 
+- v0.6 offline multi-turn protocol ledger: `61.23%` aggregate reduction, `61.22%` median reduction, `100%` required-fact fidelity, and zero prompt regressions across 12 long-context cases.
+- v0.6 acceptance corpus: 360 deterministic multilingual/code/config pairs with zero false exact classifications; blocking precision, Recall@5, and critical-difference gates pass.
 - Smoke coding task: raw `2160` prompt tokens, ShapeLex `699`, about `67.6%` fewer prompt tokens, same required facts and decision.
 - End-to-end coding simulation: raw `6573` prompt tokens, ShapeLex lean `2148`, about `67.3%` fewer prompt tokens, same quality score.
 - End-to-end with full-mode tool schema included: `4800` loaded tokens, about `26.7%` fewer than raw.
@@ -433,7 +459,7 @@ Antes de publicar, el repo se probó con simulaciones determinísticas comparand
 
 - Smoke test de código: raw `2160` tokens de prompt, ShapeLex `699`, aproximadamente `67.6%` menos tokens de prompt, con los mismos hechos requeridos y la misma decisión.
 - Simulación end-to-end: raw `6573` tokens de prompt, ShapeLex lean `2148`, aproximadamente `67.3%` menos tokens de prompt, con la misma calidad.
-- End-to-end incluyendo el schema de herramientas en modo full: `4722` tokens cargados, aproximadamente `27.9%` menos que raw.
+- End-to-end incluyendo el schema de herramientas en modo full: `4800` tokens cargados, aproximadamente `26.7%` menos que raw.
 - Simulación de adopción por agente: se esperaba ShapeLex en `5` de `6` escenarios y se eligió en los `5`; también sugirió lean, full, cambio de sesión y vista previa de limpieza en los casos esperados.
 
 Estos números son ejemplos de la suite determinística, no una promesa universal. El ahorro real depende del tamaño del contexto, el toolset activo, la app de IA y si el agente sigue las instrucciones del proyecto. En tareas pequeñas puede no haber ahorro.

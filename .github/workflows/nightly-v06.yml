@@ -1,0 +1,118 @@
+name: ShapeLex v0.6 Nightly Verification
+
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-v06-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  torture:
+    name: Torture and property tests (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22.x, 24.x]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Strict typecheck
+        run: npm run typecheck:v06
+      - name: Nightly property and torture suite
+        run: npm run test:v06:nightly
+        env:
+          SHAPELEX_TEST_PROFILE: "nightly"
+          SHAPELEX_PROPERTY_RUNS: "10000"
+          SHAPELEX_PROPERTY_SEED: "20260728"
+          SHAPELEX_TORTURE: "1"
+
+  platform:
+    name: Persistence and paths (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Platform torture suite
+        run: npm run test:v06:platform
+        env:
+          SHAPELEX_TEST_PROFILE: "nightly"
+          SHAPELEX_PROPERTY_RUNS: "2000"
+          SHAPELEX_PROPERTY_SEED: "20260728"
+          SHAPELEX_TORTURE: "1"
+
+  mutation-gate:
+    name: Safety-critical mutation gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Run targeted mutation tests
+        run: npm run mutation:v06
+      - name: Upload focused mutation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shapelex-v06-mutation-focused
+          path: coverage/v06/mutation.html
+          if-no-files-found: warn
+          retention-days: 14
+
+  mutation-audit:
+    name: Full mutation audit (diagnostic)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Run the non-blocking full mutation score audit
+        run: npm run mutation:v06:full
+      - name: Upload full mutation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shapelex-v06-mutation-full
+          path: coverage/v06/mutation-full.html
+          if-no-files-found: warn
+          retention-days: 14

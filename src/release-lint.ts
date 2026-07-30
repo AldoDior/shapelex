@@ -20,12 +20,18 @@ const DISALLOWED_TRACKED_FILES = [
 const REQUIRED_PACKAGE_FILES = [
   "bin/",
   "docs/",
+  "dist/src/fingerprint/*.d.ts",
+  "dist/src/fingerprint/*.js",
   "dist/src/mcp-server.d.ts",
   "dist/src/mcp-server.js",
   "dist/src/shapelex-doctor.d.ts",
   "dist/src/shapelex-doctor.js",
   "dist/src/shapelex.d.ts",
   "dist/src/shapelex.js",
+  "dist/src/storage/*.d.ts",
+  "dist/src/storage/*.js",
+  "dist/src/version.d.ts",
+  "dist/src/version.js",
   "skills/",
   "README.md",
   "CHANGELOG.md",
@@ -47,6 +53,12 @@ const DISALLOWED_PACKAGE_FILES = [
   "dist/src/shapelex-benchmark.js",
   "dist/src/shapelex-e2e-eval.d.ts",
   "dist/src/shapelex-e2e-eval.js",
+  "dist/src/shapelex-provider-ab-eval.d.ts",
+  "dist/src/shapelex-provider-ab-eval.js",
+  "dist/src/provider-ab.d.ts",
+  "dist/src/provider-ab.js",
+  "dist/src/protocol-ledger.d.ts",
+  "dist/src/protocol-ledger.js",
   "dist/src/shapelex-smoke-eval.d.ts",
   "dist/src/shapelex-smoke-eval.js"
 ];
@@ -65,7 +77,11 @@ const TEXT_FILE_EXTENSIONS = new Set([
   ".cjs", ".css", ".js", ".json", ".md", ".mjs", ".toml", ".ts", ".txt", ".yaml", ".yml"
 ]);
 
-const trackedFiles = execFileSync("git", ["ls-files"], { encoding: "utf8" })
+const repositoryFiles = execFileSync(
+  "git",
+  ["ls-files", "--cached", "--others", "--exclude-standard"],
+  { encoding: "utf8" }
+)
   .split(/\r?\n/)
   .filter(Boolean)
   .sort();
@@ -84,10 +100,10 @@ if (failures.length > 0) {
   process.exit(1);
 }
 
-console.log(`ShapeLex release lint passed (${trackedFiles.length} tracked files checked).`);
+console.log(`ShapeLex release lint passed (${repositoryFiles.length} repository files checked).`);
 
 function checkTrackedFiles() {
-  for (const file of trackedFiles) {
+  for (const file of repositoryFiles) {
     const normalized = file.replace(/\\/g, "/");
     if (DISALLOWED_TRACKED_FILES.includes(normalized)) {
       failures.push(`Do not track generated package artifact: ${file}`);
@@ -122,7 +138,7 @@ function checkPackageMetadata() {
 }
 
 function checkTextFiles() {
-  for (const file of trackedFiles) {
+  for (const file of repositoryFiles) {
     if (!TEXT_FILE_EXTENSIONS.has(path.extname(file))) {
       continue;
     }

@@ -1,0 +1,16 @@
+import { ShapeLexEngine, type CompactMatch } from "shapelex-mcp";
+
+const engine = new ShapeLexEngine({ persistent: false });
+const compressed = engine.compressText({
+  text: "ShapeLex package consumers can import the public engine and its declared types."
+});
+const match: CompactMatch = {
+  uri: compressed.uri,
+  matchKind: "exact",
+  score: 1,
+  exact: true,
+  mustExpand: false,
+  criticalDiff: false
+};
+
+console.log(match.uri);
