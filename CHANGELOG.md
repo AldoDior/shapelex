@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added bilingual quick-start guides for Codex, Cursor, and Claude Code, with prominent README links and safe upgrade instructions.
+
 ## [0.6.0] - 2026-07-30
 
 - Added deterministic Unicode-aware lexical fingerprints, 64-bit rolling hashes, O(n) winnowing, offset voting, and English/Spanish critical-difference protection.
