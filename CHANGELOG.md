@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 0.6.0 - 2026-07-28
+## [0.6.0] - 2026-07-30
 
 - Added deterministic Unicode-aware lexical fingerprints, 64-bit rolling hashes, O(n) winnowing, offset voting, and English/Spanish critical-difference protection.
 - Added a lazy, bounded, memory-only inverted index with explicit registration, stop-fingerprint suppression, LRU eviction, invalidation, and incomplete-search diagnostics.
