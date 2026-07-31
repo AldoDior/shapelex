@@ -46,6 +46,10 @@ jobs:
           SHAPELEX_TORTURE: "1"
       - name: Safety-critical mutation gate
         run: npm run mutation:v06
+        env:
+          # Stryker runs from a copied workspace, so it must not inherit a
+          # workspace-bound store created by earlier release checks.
+          SHAPELEX_PERSIST: "0"
       - name: Upload focused mutation report
         if: always()
         uses: actions/upload-artifact@v4
