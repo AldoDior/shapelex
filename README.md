@@ -2,6 +2,10 @@
 
 [English](#english) | [Español](#español)
 
+> **New to ShapeLex?** Start with the [English quick start](docs/QUICKSTART.md) for Codex, Cursor, and Claude Code.
+>
+> **¿Primera vez con ShapeLex?** Empieza con la [guía rápida en español](docs/QUICKSTART.es.md) para Codex, Cursor y Claude Code.
+
 ## English
 
 ShapeLex is a local MCP memory server for AI coding tools. It helps long AI sessions use fewer input tokens by saving older context locally and giving the AI compact `sx://` handles it can expand when exact text matters.
