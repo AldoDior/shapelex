@@ -1,6 +1,27 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/AldoDior/shapelex/main/.github/assets/shapelex-banner.png" alt="ShapeLex — Compact context. Exact on demand." width="100%">
+</p>
+
 # ShapeLex
 
-[English](#english) | [Español](#español)
+<p align="center">
+  Local-first MCP memory for lower-token AI coding sessions, with exact source expansion on demand.
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/shapelex-mcp"><img src="https://img.shields.io/npm/v/shapelex-mcp?color=4F46E5&label=npm" alt="npm version"></a>
+  <a href="https://github.com/AldoDior/shapelex/actions/workflows/ci.yml"><img src="https://github.com/AldoDior/shapelex/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI status"></a>
+  <a href="https://github.com/AldoDior/shapelex/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-111827" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/Node.js-%3E%3D22-43853D" alt="Node.js 22 or newer">
+</p>
+
+<p align="center">
+  <a href="#english">English</a> ·
+  <a href="#español">Español</a> ·
+  <a href="https://www.npmjs.com/package/shapelex-mcp">npm</a> ·
+  <a href="https://github.com/AldoDior/shapelex/releases">Releases</a> ·
+  <a href="https://www.linkedin.com/in/aldo-diaz-ortega/">LinkedIn</a>
+</p>
 
 > **New to ShapeLex?** Start with the [English quick start](docs/QUICKSTART.md) for Codex, Cursor, and Claude Code.
 >
@@ -480,3 +501,11 @@ La memoria local de ShapeLex puede contener texto privado exacto. ShapeLex agreg
 ```
 
 Este repositorio ya ignora esas carpetas con `.gitignore`, y ShapeLex agrega carpetas locales equivalentes automáticamente en proyectos nuevos.
+
+## Project Links / Enlaces Del Proyecto
+
+- Package / Paquete: [shapelex-mcp on npm](https://www.npmjs.com/package/shapelex-mcp)
+- Releases / Versiones: [GitHub Releases](https://github.com/AldoDior/shapelex/releases)
+- Support / Ayuda: [GitHub Issues](https://github.com/AldoDior/shapelex/issues)
+- License / Licencia: [MIT](LICENSE)
+- Maintainer / Mantenedor: [AldoDior on GitHub](https://github.com/AldoDior) · [LinkedIn](https://www.linkedin.com/in/aldo-diaz-ortega/)
