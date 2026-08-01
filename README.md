@@ -104,6 +104,8 @@ npx -y shapelex-mcp
 
 ShapeLex defaults to the lean toolset because that is the normal token-saving mode. Use `SHAPELEX_TOOLSET=full` only when you want the compact `shapelex_inspect` tool for lower-level search, retrieve, explain, risk, and stats actions.
 
+For token-sensitive AI clients, set `SHAPELEX_RESPONSE_MODE=content-only`. This keeps the required MCP text result while omitting the optional structured copy. The default `compatible` mode retains `structuredContent` for integrations that read it programmatically.
+
 In normal use, let the agent recommend the mode. It should keep you on lean unless full mode would help inspect memory more deeply.
 
 ### Codex
@@ -118,6 +120,7 @@ Recommended environment:
 
 ```text
 SHAPELEX_STORE_DIR=.shapelex-codex
+SHAPELEX_RESPONSE_MODE=content-only
 ```
 
 Then open a new Codex task and ask:
@@ -210,6 +213,8 @@ Match kinds are `exact`, `normalized_equal`, `strong_related`, `related_reordere
 ## Token Accounting
 
 ShapeLex records cumulative compression telemetry per memory session: estimated raw tokens, estimated compressed tokens, skipped operations, and estimated savings. The current built-in counter is identified as `shapelex-heuristic-v1` and is explicitly marked `exact: false`.
+
+Telemetry is also marked `scope: raw-vs-compressed-text` and `netSavingsKnown: false`. It is gross compression telemetry, not proof of end-to-end or monetary savings.
 
 These estimates are useful for deterministic local comparisons, but they are not provider billing data. A professional cost evaluation must also include model-specific token counts, tool schemas, tool arguments and results, expansions, cache reads and writes, native compaction, output tokens, and host-managed hidden context.
 
@@ -401,6 +406,8 @@ npx -y shapelex-mcp
 
 ShapeLex usa el modo lean por defecto porque es el modo normal para ahorrar tokens. Usa `SHAPELEX_TOOLSET=full` solo cuando quieras la herramienta compacta `shapelex_inspect` para acciones de búsqueda, recuperación, explicación, riesgo y estadísticas.
 
+Para clientes de IA sensibles al uso de tokens, configura `SHAPELEX_RESPONSE_MODE=content-only`. El modo predeterminado `compatible` conserva `structuredContent` para integraciones que lo leen mediante código.
+
 En el uso normal, deja que el agente recomiende el modo. Debería mantenerte en lean salvo que full ayude a inspeccionar la memoria con más detalle.
 
 ### Codex
@@ -415,6 +422,7 @@ Variable recomendada:
 
 ```text
 SHAPELEX_STORE_DIR=.shapelex-codex
+SHAPELEX_RESPONSE_MODE=content-only
 ```
 
 Después abre una tarea nueva en Codex y pregunta:

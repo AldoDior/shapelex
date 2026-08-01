@@ -312,6 +312,8 @@ test("usage telemetry is cumulative, explicit about estimates, and persistent", 
   const firstStats = first.stats({ sessionId: "usage" });
   assert.equal(firstStats.tokenAccounting.estimator, "shapelex-heuristic-v1");
   assert.equal(firstStats.tokenAccounting.exact, false);
+  assert.equal(firstStats.tokenAccounting.scope, "raw-vs-compressed-text");
+  assert.equal(firstStats.tokenAccounting.netSavingsKnown, false);
   assert.equal(firstStats.tokenAccounting.usage.operations, 2);
   assert.equal(firstStats.tokenAccounting.usage.skippedOperations, 1);
 
@@ -465,6 +467,59 @@ test("MCP compression response stays smaller than the long raw input", async () 
   });
 
   assert.ok(estimateTokens(JSON.stringify(response)) < estimateTokens(text));
+});
+
+test("content-only MCP responses remove duplicate structured payloads", async () => {
+  const text = "Do not approve invoice 4815 before settlement. ".repeat(100);
+  const compatibleEngine = new ShapeLexEngine({ persistent: false });
+  const contentOnlyEngine = new ShapeLexEngine({ persistent: false });
+  const compatible = createJsonRpcHandler(compatibleEngine, { responseMode: "compatible" });
+  const contentOnly = createJsonRpcHandler(contentOnlyEngine, { responseMode: "content-only" });
+  const request = {
+    jsonrpc: "2.0",
+    id: 201,
+    method: "tools/call",
+    params: {
+      name: "shapelex_compress_text",
+      arguments: { sessionId: "response-mode", text }
+    }
+  };
+
+  const compatibleCompression = await compatible(request);
+  const contentOnlyCompression = await contentOnly(request);
+
+  assert.equal("structuredContent" in contentOnlyCompression.result, false);
+  assert.equal(
+    contentOnlyCompression.result.content[0].text,
+    compatibleCompression.result.content[0].text
+  );
+  assert.ok(
+    estimateTokens(JSON.stringify(contentOnlyCompression))
+      < estimateTokens(JSON.stringify(compatibleCompression))
+  );
+
+  const contextRequest = {
+    jsonrpc: "2.0",
+    id: 202,
+    method: "tools/call",
+    params: {
+      name: "shapelex_context",
+      arguments: {
+        sessionId: "response-mode",
+        query: "invoice settlement approval",
+        detail: "standard"
+      }
+    }
+  };
+  const compatibleContext = await compatible(contextRequest);
+  const contentOnlyContext = await contentOnly(contextRequest);
+
+  assert.equal("structuredContent" in contentOnlyContext.result, false);
+  assert.equal(contentOnlyContext.result.content[0].text, compatibleContext.result.content[0].text);
+  assert.ok(
+    estimateTokens(JSON.stringify(contentOnlyContext))
+      < estimateTokens(JSON.stringify(compatibleContext))
+  );
 });
 
 test("large MCP compression keeps model-facing handles bounded and honors a practical budget", async () => {
@@ -712,6 +767,11 @@ test("MCP memory overview explains sessions", async () => {
 
   assert.equal(overview.result.structuredContent.currentSessionId, "overview-session");
   assert.match(overview.result.structuredContent.plainEnglish, /overview-session/);
+  assert.match(overview.result.content[0].text, /not provider billing/i);
+  assert.ok(
+    estimateTokens(overview.result.content[0].text)
+      < estimateTokens(JSON.stringify(overview.result.structuredContent))
+  );
 });
 
 test("compress creates navigable levels with risk assessment", () => {

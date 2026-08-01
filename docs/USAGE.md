@@ -125,6 +125,15 @@ npm start
 
 Lean mode exposes the normal low-overhead workflow: compress, get compact context, expand exact handles, inspect memory, and clean sessions. Use `SHAPELEX_TOOLSET="full"` only when you want the compact `shapelex_inspect` tool for lower-level search, retrieve, explain, risk, and stats actions.
 
+Token-sensitive AI clients can omit the optional structured copy of each tool result:
+
+```powershell
+$env:SHAPELEX_RESPONSE_MODE="content-only"
+npm start
+```
+
+The default `compatible` mode retains `structuredContent` for programmatic integrations. `content-only` preserves the required MCP text content and is recommended when the client uses ShapeLex through the model rather than parsing structured results itself.
+
 The live Codex benchmark showed why this matters: exposing too many MCP tools can cost more tokens than raw context. ShapeLex defaults to lean, and full mode keeps the extra surface consolidated into one compact inspect tool.
 
 Agent behavior should be simple:

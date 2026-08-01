@@ -786,6 +786,8 @@ export class ShapeLexEngine {
       tokenAccounting: {
         estimator: TOKEN_ESTIMATOR_ID,
         exact: false,
+        scope: "raw-vs-compressed-text",
+        netSavingsKnown: false,
         note: "Counts are deterministic estimates, not provider-billed tokens. Record provider-reported usage separately when available.",
         usage: summarizeUsageEvents(sessions.flatMap((session) => session.usageEvents ?? []))
       },
@@ -858,6 +860,8 @@ export class ShapeLexEngine {
       tokenAccounting: {
         estimator: TOKEN_ESTIMATOR_ID,
         exact: false,
+        scope: "raw-vs-compressed-text",
+        netSavingsKnown: false,
         currentSession: summarizeUsageEvents(current?.usageEvents ?? [])
       },
       suggestions,
@@ -1082,6 +1086,7 @@ export class ShapeLexEngine {
       operation: kind === "conversation" ? "compress_messages" : "compress_text",
       estimator: TOKEN_ESTIMATOR_ID,
       exact: false,
+      scope: "raw-vs-compressed-text",
       rawCharacters: String(rawText ?? "").length,
       compressedCharacters: String(result.compressedText ?? "").length,
       rawTokens: result.rawTokenEstimate,
@@ -1961,7 +1966,9 @@ function resultPayload(sessionId: any, compressedText: any, handles: any, rawTex
     compressedTokenEstimate,
     tokenAccounting: {
       estimator: TOKEN_ESTIMATOR_ID,
-      exact: false
+      exact: false,
+      scope: "raw-vs-compressed-text",
+      netSavingsKnown: false
     },
     savingsRatio: rawTokenEstimate === 0
       ? 0

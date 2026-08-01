@@ -2,11 +2,33 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { PassThrough } from "node:stream";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 import { createJsonRpcHandler, startMcpServer } from "../src/mcp-server.js";
 import { ShapeLexEngine } from "../src/shapelex.js";
 import { PACKAGE_VERSION } from "../src/version.js";
+
+test("importing the MCP module does not create a persistent user store", () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "shapelex-import-"));
+  const moduleUrl = pathToFileURL(path.resolve("dist/src/mcp-server.js")).href;
+  const result = spawnSync(
+    process.execPath,
+    ["--input-type=module", "-e", `await import(${JSON.stringify(moduleUrl)})`],
+    {
+      cwd: workspaceRoot,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        SHAPELEX_STORE_DIR: ".shapelex-import-test"
+      }
+    }
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(fs.existsSync(path.join(workspaceRoot, ".shapelex-import-test")), false);
+});
 
 test("MCP initialization reports the package version and honest resource capabilities", async () => {
   const handle = createJsonRpcHandler(new ShapeLexEngine());

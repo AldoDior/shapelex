@@ -15,6 +15,7 @@ test("shared MCP configs use lean ShapeLex toolset and private local stores", ()
     assert.equal(shapelex.command, "node");
     assert.deepEqual(shapelex.args, ["./bin/shapelex-mcp.js"]);
     assert.equal(shapelex.env.SHAPELEX_TOOLSET, "lean");
+    assert.equal(shapelex.env.SHAPELEX_RESPONSE_MODE, "content-only");
     assert.equal(shapelex.env.SHAPELEX_MAX_STORE_MB, "100");
     assert.match(shapelex.env.SHAPELEX_STORE_DIR, /^\.shapelex-/);
   }
