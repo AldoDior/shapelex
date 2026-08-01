@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.6.1] - 2026-08-01
+
 - Added bilingual quick-start guides for Codex, Cursor, and Claude Code, with prominent README links and safe upgrade instructions.
 - Bounded model-facing compression responses while keeping all exact spans available through `shapelex_context` and `shapelex_expand`.
 - Fixed exact file-backed span mapping for files containing mixed LF and CRLF line endings.
