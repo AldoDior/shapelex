@@ -58,7 +58,7 @@ const tools = [
           }
         },
         label: { type: "string" },
-        budgetTokens: { type: "number" }
+        budgetTokens: { type: "integer", minimum: 1 }
       },
       required: ["messages"],
       additionalProperties: false
@@ -75,7 +75,7 @@ const tools = [
         sourcePath: { type: "string" },
         label: { type: "string" },
         mode: { type: "string", enum: ["text", "doc", "message", "code"] },
-        budgetTokens: { type: "number" }
+        budgetTokens: { type: "integer", minimum: 1 }
       },
       oneOf: [
         { required: ["text"] },
@@ -402,6 +402,8 @@ function renderToolText(name: string, result: any) {
 
 function renderStructuredContent(name: string, result: any) {
   if (name === "shapelex_compress_text" || name === "shapelex_compress_messages") {
+    const handles = result.responseHandles ?? (result.levels?.[4]?.handles ?? []).slice(0, 8);
+    const totalHandles = result.levels?.[4]?.handles?.length ?? handles.length;
     return {
       sessionId: result.sessionId,
       documentId: result.documentId,
@@ -410,10 +412,12 @@ function renderStructuredContent(name: string, result: any) {
       mode: result.mode,
       source: result.source,
       compressedText: result.compressedText,
-      handles: (result.levels?.[4]?.handles ?? []).map((handle: any) => ({
+      handles: handles.map((handle: any) => ({
         uri: handle.uri,
         mustExpand: Boolean(handle.risk?.mustExpand)
       })),
+      totalHandles,
+      omittedHandles: Math.max(0, totalHandles - handles.length),
       risk: compactRisk(result.risk),
       tokenAccounting: result.tokenAccounting,
       rawTokenEstimate: result.rawTokenEstimate,
@@ -559,8 +563,23 @@ function validateSchemaValue(value: any, schema: any, pathLabel: string): void {
     value.forEach((item, index) => validateSchemaValue(item, schema.items ?? {}, `${pathLabel}[${index}]`));
     return;
   }
-  if (schema.type && typeof value !== schema.type) {
+  if (schema.type === "integer") {
+    if (!Number.isSafeInteger(value)) {
+      throw new TypeError(`${pathLabel} must be an integer`);
+    }
+  } else if (schema.type && typeof value !== schema.type) {
     throw new TypeError(`${pathLabel} must be a ${schema.type}`);
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      throw new TypeError(`${pathLabel} must be finite`);
+    }
+    if (typeof schema.minimum === "number" && value < schema.minimum) {
+      throw new TypeError(`${pathLabel} must be greater than or equal to ${schema.minimum}`);
+    }
+    if (typeof schema.maximum === "number" && value > schema.maximum) {
+      throw new TypeError(`${pathLabel} must be less than or equal to ${schema.maximum}`);
+    }
   }
   if (Array.isArray(schema.enum) && !schema.enum.includes(value)) {
     throw new TypeError(`${pathLabel} must be one of: ${schema.enum.join(", ")}`);

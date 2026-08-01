@@ -9,12 +9,22 @@ const DISALLOWED_TRACKED_PREFIXES = [
   ".shapelex-codex/",
   ".shapelex-cursor/",
   ".shapelex-claude/",
+  ".shapelex-evals/",
+  ".stryker-tmp/",
+  "coverage/",
   "dist/",
   "node_modules/"
 ];
 
 const DISALLOWED_TRACKED_FILES = [
-  "shapelex-mcp-0.4.0.tgz"
+  ".env",
+  ".env.local",
+  ".npmrc"
+];
+
+const DISALLOWED_TRACKED_SUFFIXES = [
+  ".log",
+  ".tgz"
 ];
 
 const REQUIRED_PACKAGE_FILES = [
@@ -66,11 +76,16 @@ const DISALLOWED_PACKAGE_FILES = [
 const SECRET_OR_LOCAL_PATTERNS = [
   { name: "GitHub classic token", pattern: /ghp_[A-Za-z0-9_]{20,}/ },
   { name: "GitHub fine-grained token", pattern: /github_pat_[A-Za-z0-9_]+/ },
-  { name: "OpenAI-style API key", pattern: /sk-[A-Za-z0-9]{20,}/ },
+  { name: "npm access token", pattern: /npm_[A-Za-z0-9]{20,}/ },
+  { name: "OpenAI-style API key", pattern: /sk-[A-Za-z0-9_-]{20,}/ },
+  { name: "AWS access key", pattern: /AKIA[0-9A-Z]{16}/ },
   { name: "private key block", pattern: /BEGIN (?:RSA |OPENSSH |EC |DSA )?PRIVATE KEY/ },
   { name: "personal Windows user path", pattern: /C:\\Users\\[A-Za-z0-9._-]+/i },
   { name: "personal AppData path", pattern: /AppData\\(?:Local|Roaming)/i },
-  { name: "workspace drive path", pattern: /D:\\(?:aldoo|Users)\\/i }
+  {
+    name: "workspace drive path",
+    pattern: /[A-Z]:\\(?:Users\\|[^\\\r\n]+\\(?:Desktop|Documents|Downloads|Escritorio|Documentos)\\)/i
+  }
 ];
 
 const TEXT_FILE_EXTENSIONS = new Set([
@@ -106,7 +121,10 @@ function checkTrackedFiles() {
   for (const file of repositoryFiles) {
     const normalized = file.replace(/\\/g, "/");
     if (DISALLOWED_TRACKED_FILES.includes(normalized)) {
-      failures.push(`Do not track generated package artifact: ${file}`);
+      failures.push(`Do not track local or credential-bearing file: ${file}`);
+    }
+    if (DISALLOWED_TRACKED_SUFFIXES.some((suffix) => normalized.endsWith(suffix))) {
+      failures.push(`Do not track generated artifact: ${file}`);
     }
     if (DISALLOWED_TRACKED_PREFIXES.some((prefix) => normalized.startsWith(prefix))) {
       failures.push(`Do not track generated/private path: ${file}`);
