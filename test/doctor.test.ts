@@ -10,10 +10,10 @@ test("doctor validates cross-platform setup requirements", async () => {
   const rendered = renderDoctorReport(report);
 
   assert.equal(report.ok, true);
-  assert.equal(report.version, "0.6.0");
+  assert.equal(report.version, "0.6.1");
   assert.equal(report.mode, "source-checkout");
   assert.match(rendered, /ShapeLex doctor/);
-  assert.match(rendered, /Version: 0\.6\.0/);
+  assert.ok(rendered.includes(`Version: ${report.version}`));
   assert.ok(report.checks.some((check) => check.name === "node-version" && check.ok));
   assert.ok(report.checks.some((check) => check.name === "default-lean-toolset" && check.ok));
   assert.ok(report.checks.some((check) => check.name === ".cursor/mcp.json" && check.ok));
