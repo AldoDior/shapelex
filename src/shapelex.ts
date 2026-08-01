@@ -47,6 +47,8 @@ const MIN_TOKEN_SAVINGS_RATIO = 0.15;
 const TOKEN_ESTIMATOR_ID = "shapelex-heuristic-v1";
 const MAX_USAGE_EVENTS_PER_SESSION = 500;
 const MAX_ANCHORS = 12;
+const DEFAULT_MODEL_FACING_HANDLE_LIMIT = 8;
+const DEFAULT_MODEL_FACING_MESSAGE_LIMIT = 24;
 const CONTEXT_RADIUS = 90;
 const SESSION_ID_PATTERN = /^[A-Za-z0-9._-]{1,80}$/;
 const TEXT_MODES = new Set(["text", "doc", "message", "code"]);
@@ -188,6 +190,7 @@ export class ShapeLexEngine {
   ) {
     this.#refreshStoreIfChanged();
     assertBoundedString(text, "text", MAX_TEXT_CHARS);
+    const normalizedBudgetTokens = normalizeBudgetTokens(budgetTokens);
     const normalizedMode = normalizeTextMode(mode);
     const normalizedLabel = normalizeLabel(label);
     const sourceId = `source_${sourceHash(text)}`;
@@ -206,7 +209,8 @@ export class ShapeLexEngine {
       this.#convertDocumentToTextBacked(session, document);
     }
     document.handles = document.handles.map(publicHandleMetadata);
-    const compressedText = renderNavigableDocument(document);
+    const rendered = renderNavigableDocument(document, normalizedBudgetTokens);
+    const compressedText = rendered.text;
     const payload = resultPayload(session.id, compressedText, document.handles, text);
 
     Object.assign(payload, {
@@ -219,17 +223,14 @@ export class ShapeLexEngine {
       confidence: document.confidence,
       code: document.code,
       conversation: document.conversation,
-      source: document.source
+      source: document.source,
+      responseHandles: rendered.handles
     });
     payload.deduplicated = deduplicated;
     payload.matchKind = deduplicated ? "exact" : "unrelated";
 
-    if (Number.isFinite(budgetTokens)) {
-      payload.budgetTokens = budgetTokens;
-      payload.withinBudget = payload.compressedTokenEstimate <= budgetTokens;
-    }
-
     const result = applyCompressionPolicy(payload, text);
+    applyBudgetMetadata(result, normalizedBudgetTokens);
     this.#recordCompressionUsage(session, result, text, "text");
     try {
       this.#saveStore();
@@ -251,6 +252,7 @@ export class ShapeLexEngine {
     if (!Array.isArray(messages)) {
       throw new TypeError("messages must be an array");
     }
+    const normalizedBudgetTokens = normalizeBudgetTokens(budgetTokens);
     let aggregateCharacters = 0;
     messages.forEach((message, index) => {
       assertMessage(message, index);
@@ -300,10 +302,11 @@ export class ShapeLexEngine {
       return `[${role}#${index}] ${content.trim()}`;
     });
 
-    const compressedText = withInstruction([
-      renderLevelSummary(document),
-      compactJoin(compressedMessages)
-    ].join("\n\n"));
+    const compressedText = renderCompressedMessages(
+      document,
+      compressedMessages,
+      normalizedBudgetTokens
+    );
     const payload = resultPayload(session.id, compressedText, document.handles, text);
 
     Object.assign(payload, {
@@ -314,17 +317,14 @@ export class ShapeLexEngine {
       levels: document.levels,
       risk: document.risk,
       confidence: document.confidence,
-      conversation: document.conversation
+      conversation: document.conversation,
+      responseHandles: document.handles.slice(-DEFAULT_MODEL_FACING_HANDLE_LIMIT)
     });
     payload.deduplicated = deduplicated;
     payload.matchKind = deduplicated ? "exact" : "unrelated";
 
-    if (Number.isFinite(budgetTokens)) {
-      payload.budgetTokens = budgetTokens;
-      payload.withinBudget = payload.compressedTokenEstimate <= budgetTokens;
-    }
-
     const result = applyCompressionPolicy(payload, text);
+    applyBudgetMetadata(result, normalizedBudgetTokens);
     this.#recordCompressionUsage(session, result, text, "conversation");
     try {
       this.#saveStore();
@@ -1095,6 +1095,7 @@ export class ShapeLexEngine {
 
   #convertDocumentToFileBacked(session: any, document: any, fileSource: any) {
     const sourceText = document.text;
+    const sourceIndex = createEolNormalizedSourceIndex(sourceText);
     const sourceRecord = sourceRecordFromMaterial({
       bytes: Buffer.from(sourceText, "utf8"),
       origin: {
@@ -1107,26 +1108,18 @@ export class ShapeLexEngine {
     this.#mergeSourceRecord(sourceRecord);
     let searchOffset = 0;
     let searchByteOffset = 0;
+    let normalizedSearchOffset = 0;
 
     for (const handle of document.handles) {
       const span = session.spans.get(handle.spanId);
       if (!span || typeof span.text !== "string") {
         throw new Error(`ShapeLex could not create a file-backed source for ${handle.uri}`);
       }
-      let matchedText = span.text;
-      let startChar = sourceText.indexOf(matchedText, searchOffset);
-      if (startChar < 0 && matchedText.includes("\n")) {
-        const crlfText = matchedText.replace(/\n/g, "\r\n");
-        const crlfStart = sourceText.indexOf(crlfText, searchOffset);
-        if (crlfStart >= 0) {
-          matchedText = crlfText;
-          startChar = crlfStart;
-        }
-      }
-      if (startChar < 0) {
+      const match = locateNormalizedSpan(sourceIndex, span.text, normalizedSearchOffset);
+      if (!match) {
         throw new Error(`ShapeLex could not locate span content in ${fileSource.relativePath}`);
       }
-      const endChar = startChar + matchedText.length;
+      const { startChar, endChar, matchedText, normalizedEnd } = match;
       const startByte = searchByteOffset + Buffer.byteLength(sourceText.slice(searchOffset, startChar), "utf8");
       const endByte = startByte + Buffer.byteLength(matchedText, "utf8");
       const spanChecksum = sourceHash(matchedText);
@@ -1146,6 +1139,7 @@ export class ShapeLexEngine {
       delete span.text;
       searchOffset = endChar;
       searchByteOffset = endByte;
+      normalizedSearchOffset = normalizedEnd;
     }
 
     document.source = {
@@ -1164,6 +1158,7 @@ export class ShapeLexEngine {
       return;
     }
     const sourceText = document.text;
+    const sourceIndex = createEolNormalizedSourceIndex(sourceText);
     const sourceRecord = sourceRecordFromMaterial({
       bytes: Buffer.from(sourceText, "utf8"),
       origin: {
@@ -1178,26 +1173,18 @@ export class ShapeLexEngine {
     this.#mergeSourceRecord(sourceRecord);
     let searchOffset = 0;
     let searchByteOffset = 0;
+    let normalizedSearchOffset = 0;
 
     for (const handle of document.handles) {
       const span = session.spans.get(handle.spanId);
       if (!span || typeof span.text !== "string") {
         throw new Error(`ShapeLex could not create an exact text source for ${handle.uri}`);
       }
-      let matchedText = span.text;
-      let startChar = sourceText.indexOf(matchedText, searchOffset);
-      if (startChar < 0 && matchedText.includes("\n")) {
-        const crlfText = matchedText.replace(/\n/g, "\r\n");
-        const crlfStart = sourceText.indexOf(crlfText, searchOffset);
-        if (crlfStart >= 0) {
-          matchedText = crlfText;
-          startChar = crlfStart;
-        }
-      }
-      if (startChar < 0) {
+      const match = locateNormalizedSpan(sourceIndex, span.text, normalizedSearchOffset);
+      if (!match) {
         throw new Error(`ShapeLex could not locate exact text for ${handle.uri}`);
       }
-      const endChar = startChar + matchedText.length;
+      const { startChar, endChar, matchedText, normalizedEnd } = match;
       const startByte = searchByteOffset + Buffer.byteLength(sourceText.slice(searchOffset, startChar), "utf8");
       const endByte = startByte + Buffer.byteLength(matchedText, "utf8");
       const spanChecksum = sourceHash(matchedText);
@@ -1220,6 +1207,7 @@ export class ShapeLexEngine {
       delete span.text;
       searchOffset = endChar;
       searchByteOffset = endByte;
+      normalizedSearchOffset = normalizedEnd;
     }
 
     document.checksum = sourceRecord.sha256;
@@ -1852,14 +1840,47 @@ function summarizeDocument(document: any, { anchors, code, conversation }: any) 
   return `${document.label}: compressed ${document.mode} memory about ${topic}, with ${document.handles.length} expandable spans.`;
 }
 
-function renderNavigableDocument(document: any) {
+function renderNavigableDocument(document: any, budgetTokens?: number) {
+  const handles = document.levels[4].handles.slice(0, DEFAULT_MODEL_FACING_HANDLE_LIMIT);
+  for (let count = handles.length; count >= 0; count -= 1) {
+    const visibleHandles = handles.slice(0, count);
+    const text = renderNavigableDocumentWithHandles(document, visibleHandles);
+    if (budgetTokens === undefined || estimateTokens(text) <= budgetTokens || count === 0) {
+      return { text, handles: visibleHandles };
+    }
+  }
+  throw new Error("Unable to render ShapeLex memory");
+}
+
+function renderNavigableDocumentWithHandles(document: any, handles: any[]) {
+  const omitted = Math.max(0, document.levels[4].handles.length - handles.length);
+  const handleText = handles.map((item) => item.uri).join(",") || document.uri;
+  const more = omitted > 0 ? ` (+${omitted} more; use shapelex_context)` : "";
   return withInstruction([
     `${document.uri} ${document.mode} risk=${document.risk.level} expand=${document.risk.shouldExpand}`,
     `L0 ${document.levels[0].summary}`,
     `L2 ${document.levels[2].anchors.slice(0, 8).join(",") || "none"}`,
     `L3 critical=${document.levels[3].criticalExtracts.length}`,
-    `L4 ${document.levels[4].handles.map((item) => item.uri).join(",")}`
+    `L4 ${handleText}${more}`
   ].join("\n\n"));
+}
+
+function renderCompressedMessages(document: any, messages: string[], budgetTokens?: number) {
+  const boundedMessages = messages.slice(-DEFAULT_MODEL_FACING_MESSAGE_LIMIT);
+  for (let start = 0; start < boundedMessages.length; start += 1) {
+    const omitted = messages.length - (boundedMessages.length - start);
+    const omissionNotice = omitted > 0
+      ? `[${omitted} older messages stored; use shapelex_context to retrieve them]`
+      : "";
+    const text = withInstruction([
+      renderLevelSummary(document),
+      compactJoin([omissionNotice, ...boundedMessages.slice(start)])
+    ].join("\n\n"));
+    if (budgetTokens === undefined || estimateTokens(text) <= budgetTokens || start === boundedMessages.length - 1) {
+      return text;
+    }
+  }
+  return withInstruction(renderLevelSummary(document));
 }
 
 function renderLevelSummary(document: any) {
@@ -2640,6 +2661,62 @@ function levelDescription(level) {
 
 function normalizeText(text) {
   return String(text ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();
+}
+
+function normalizeBudgetTokens(value: unknown) {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Number.isSafeInteger(value) || Number(value) < 1) {
+    throw new TypeError("budgetTokens must be a positive safe integer");
+  }
+  return Number(value);
+}
+
+function applyBudgetMetadata(result: any, budgetTokens?: number) {
+  if (budgetTokens === undefined) {
+    return;
+  }
+  result.budgetTokens = budgetTokens;
+  result.withinBudget = result.compressedTokenEstimate <= budgetTokens;
+}
+
+function createEolNormalizedSourceIndex(sourceText: string) {
+  const normalizedText = sourceText.replace(/\r\n/g, "\n");
+  const rawBoundaries = new Uint32Array(normalizedText.length + 1);
+  let rawOffset = 0;
+  let normalizedOffset = 0;
+  while (rawOffset < sourceText.length) {
+    rawBoundaries[normalizedOffset] = rawOffset;
+    rawOffset += sourceText[rawOffset] === "\r" && sourceText[rawOffset + 1] === "\n" ? 2 : 1;
+    normalizedOffset += 1;
+  }
+  rawBoundaries[normalizedOffset] = rawOffset;
+  return { sourceText, normalizedText, rawBoundaries };
+}
+
+function locateNormalizedSpan(
+  sourceIndex: ReturnType<typeof createEolNormalizedSourceIndex>,
+  spanText: string,
+  normalizedSearchOffset: number
+) {
+  const normalizedSpan = spanText.replace(/\r\n/g, "\n");
+  const normalizedStart = sourceIndex.normalizedText.indexOf(normalizedSpan, normalizedSearchOffset);
+  if (normalizedStart < 0) {
+    return undefined;
+  }
+  const normalizedEnd = normalizedStart + normalizedSpan.length;
+  const startChar = sourceIndex.rawBoundaries[normalizedStart];
+  const endChar = sourceIndex.rawBoundaries[normalizedEnd];
+  if (startChar === undefined || endChar === undefined) {
+    return undefined;
+  }
+  return {
+    startChar,
+    endChar,
+    normalizedEnd,
+    matchedText: sourceIndex.sourceText.slice(startChar, endChar)
+  };
 }
 
 function compactJoin(parts) {

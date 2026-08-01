@@ -162,6 +162,36 @@ test("file-backed compression expands exact workspace content without storing a 
   assert.ok(text.includes(restoredSpan.text));
 });
 
+test("file-backed compression preserves exact spans across mixed line endings", (context) => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "shapelex-file-mixed-eol-"));
+  context.after(() => fs.rmSync(workspaceRoot, { recursive: true, force: true }));
+  const sourcePath = path.join(workspaceRoot, "mixed.ts");
+  const crlfSection = Array.from(
+    { length: 18 },
+    (_, index) => `export const windowsValue${index} = ${index};`
+  ).join("\r\n");
+  const lfSection = Array.from(
+    { length: 18 },
+    (_, index) => `export const unixValue${index} = ${index};`
+  ).join("\n");
+  const text = `${crlfSection}\r\n${lfSection}\nexport const complete = true;`;
+  fs.writeFileSync(sourcePath, text, "utf8");
+  const engine = new ShapeLexEngine({ workspaceRoot, persistent: false });
+
+  const compressed = engine.compressFile({
+    sessionId: "mixed-eol",
+    sourcePath: "mixed.ts",
+    budgetTokens: 400
+  });
+
+  assert.equal(engine.expand({ sessionId: "mixed-eol", handle: compressed.uri }).text, text);
+  for (const handle of compressed.handles) {
+    const expanded = engine.expand({ sessionId: "mixed-eol", handle: handle.uri }).text;
+    assert.ok(text.includes(expanded));
+  }
+  assert.equal(compressed.withinBudget, true);
+});
+
 test("file-backed expansion rejects changed sources", () => {
   const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "shapelex-file-change-"));
   const sourcePath = path.join(workspaceRoot, "policy.txt");
@@ -435,6 +465,64 @@ test("MCP compression response stays smaller than the long raw input", async () 
   });
 
   assert.ok(estimateTokens(JSON.stringify(response)) < estimateTokens(text));
+});
+
+test("large MCP compression keeps model-facing handles bounded and honors a practical budget", async () => {
+  const engine = new ShapeLexEngine();
+  const handle = createJsonRpcHandler(engine);
+  const text = Array.from(
+    { length: 320 },
+    (_, index) => `export function operation${index}() { return ${index}; }\n\n`
+  ).join("");
+  const response = await handle({
+    jsonrpc: "2.0",
+    id: 202,
+    method: "tools/call",
+    params: {
+      name: "shapelex_compress_text",
+      arguments: {
+        sessionId: "bounded-response",
+        text,
+        mode: "code",
+        budgetTokens: 400
+      }
+    }
+  });
+
+  assert.equal(response.result.structuredContent.withinBudget, true);
+  assert.ok(response.result.structuredContent.compressedTokenEstimate <= 400);
+  assert.ok(response.result.structuredContent.handles.length <= 8);
+  assert.ok(response.result.structuredContent.totalHandles > response.result.structuredContent.handles.length);
+  assert.equal(
+    response.result.structuredContent.omittedHandles,
+    response.result.structuredContent.totalHandles - response.result.structuredContent.handles.length
+  );
+  assert.match(response.result.content[0].text, /use shapelex_context/);
+  assert.ok(estimateTokens(JSON.stringify(response)) < estimateTokens(text));
+});
+
+test("budgetTokens rejects invalid values", () => {
+  const engine = new ShapeLexEngine({ persistent: false });
+  const text = "Important context. ".repeat(40);
+
+  for (const budgetTokens of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.throws(
+      () => engine.compressText({ text, budgetTokens }),
+      /budgetTokens must be a positive safe integer/
+    );
+  }
+});
+
+test("budget accounting reflects exact text returned by the compression policy", () => {
+  const engine = new ShapeLexEngine({ persistent: false });
+  const compressed = engine.compressText({
+    text: "Short exact note.",
+    budgetTokens: 1
+  });
+
+  assert.equal(compressed.compressionSkipped, true);
+  assert.equal(compressed.compressedTokenEstimate, compressed.rawTokenEstimate);
+  assert.equal(compressed.withinBudget, false);
 });
 
 test("MCP compression accepts workspace files without a separate tool schema", async () => {
