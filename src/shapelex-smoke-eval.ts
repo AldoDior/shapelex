@@ -48,7 +48,9 @@ const codingContext = [
 ].join("\n");
 
 export async function runSmokeEval() {
-  const handleJsonRpc = createJsonRpcHandler(new ShapeLexEngine());
+  const handleJsonRpc = createJsonRpcHandler(new ShapeLexEngine(), {
+    responseMode: "compatible"
+  });
   await callTool(handleJsonRpc, "shapelex_clear", { sessionId });
 
   const rawPrompt = [

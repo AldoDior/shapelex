@@ -4,7 +4,12 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { ShapeLexEngine, charShape, estimateTokens, fingerprintTokens } from "../src/shapelex.js";
-import { createEngineFromEnvironment, createJsonRpcHandler, handleJsonRpc } from "../src/mcp-server.js";
+import { createEngineFromEnvironment, createJsonRpcHandler } from "../src/mcp-server.js";
+
+const compatibleHandleJsonRpc = createJsonRpcHandler(
+  new ShapeLexEngine({ persistent: false }),
+  { responseMode: "compatible" }
+);
 
 test("charShape is stable for identifiers and mixed case", () => {
   const shape = charShape("validateChargebackTransaction");
@@ -312,6 +317,8 @@ test("usage telemetry is cumulative, explicit about estimates, and persistent", 
   const firstStats = first.stats({ sessionId: "usage" });
   assert.equal(firstStats.tokenAccounting.estimator, "shapelex-heuristic-v1");
   assert.equal(firstStats.tokenAccounting.exact, false);
+  assert.equal(firstStats.tokenAccounting.scope, "raw-vs-compressed-text");
+  assert.equal(firstStats.tokenAccounting.netSavingsKnown, false);
   assert.equal(firstStats.tokenAccounting.usage.operations, 2);
   assert.equal(firstStats.tokenAccounting.usage.skippedOperations, 1);
 
@@ -425,11 +432,11 @@ test("memoryOverview explains current session and cleanup suggestions", () => {
 });
 
 test("MCP tools/list and tools/call expose compression", async () => {
-  const list = await handleJsonRpc({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+  const list = await compatibleHandleJsonRpc({ jsonrpc: "2.0", id: 1, method: "tools/list" });
   assert.equal(list.result.tools.some((tool) => tool.name === "shapelex_compress_text"), true);
   assert.equal(list.result.tools.some((tool) => tool.name === "shapelex_search"), false);
 
-  const call = await handleJsonRpc({
+  const call = await compatibleHandleJsonRpc({
     jsonrpc: "2.0",
     id: 2,
     method: "tools/call",
@@ -467,9 +474,62 @@ test("MCP compression response stays smaller than the long raw input", async () 
   assert.ok(estimateTokens(JSON.stringify(response)) < estimateTokens(text));
 });
 
+test("MCP responses default to content-only and compatible mode is explicit", async () => {
+  const text = "Do not approve invoice 4815 before settlement. ".repeat(100);
+  const compatibleEngine = new ShapeLexEngine({ persistent: false });
+  const contentOnlyEngine = new ShapeLexEngine({ persistent: false });
+  const compatible = createJsonRpcHandler(compatibleEngine, { responseMode: "compatible" });
+  const contentOnly = createJsonRpcHandler(contentOnlyEngine);
+  const request = {
+    jsonrpc: "2.0",
+    id: 201,
+    method: "tools/call",
+    params: {
+      name: "shapelex_compress_text",
+      arguments: { sessionId: "response-mode", text }
+    }
+  };
+
+  const compatibleCompression = await compatible(request);
+  const contentOnlyCompression = await contentOnly(request);
+
+  assert.equal("structuredContent" in contentOnlyCompression.result, false);
+  assert.equal(
+    contentOnlyCompression.result.content[0].text,
+    compatibleCompression.result.content[0].text
+  );
+  assert.ok(
+    estimateTokens(JSON.stringify(contentOnlyCompression))
+      < estimateTokens(JSON.stringify(compatibleCompression))
+  );
+
+  const contextRequest = {
+    jsonrpc: "2.0",
+    id: 202,
+    method: "tools/call",
+    params: {
+      name: "shapelex_context",
+      arguments: {
+        sessionId: "response-mode",
+        query: "invoice settlement approval",
+        detail: "standard"
+      }
+    }
+  };
+  const compatibleContext = await compatible(contextRequest);
+  const contentOnlyContext = await contentOnly(contextRequest);
+
+  assert.equal("structuredContent" in contentOnlyContext.result, false);
+  assert.equal(contentOnlyContext.result.content[0].text, compatibleContext.result.content[0].text);
+  assert.ok(
+    estimateTokens(JSON.stringify(contentOnlyContext))
+      < estimateTokens(JSON.stringify(compatibleContext))
+  );
+});
+
 test("large MCP compression keeps model-facing handles bounded and honors a practical budget", async () => {
   const engine = new ShapeLexEngine();
-  const handle = createJsonRpcHandler(engine);
+  const handle = createJsonRpcHandler(engine, { responseMode: "compatible" });
   const text = Array.from(
     { length: 320 },
     (_, index) => `export function operation${index}() { return ${index}; }\n\n`
@@ -530,7 +590,9 @@ test("MCP compression accepts workspace files without a separate tool schema", a
   const sourcePath = path.join(workspaceRoot, "notes.md");
   const text = "Do not publish release 4815 before approval. ".repeat(30);
   fs.writeFileSync(sourcePath, text);
-  const handle = createJsonRpcHandler(new ShapeLexEngine({ workspaceRoot }));
+  const handle = createJsonRpcHandler(new ShapeLexEngine({ workspaceRoot }), {
+    responseMode: "compatible"
+  });
 
   const compressed = await handle({
     jsonrpc: "2.0",
@@ -566,7 +628,7 @@ test("MCP compression accepts workspace files without a separate tool schema", a
 });
 
 test("MCP initialize instructs agents to use ShapeLex proactively", async () => {
-  const initialized = await handleJsonRpc({ jsonrpc: "2.0", id: 40, method: "initialize", params: {} });
+  const initialized = await compatibleHandleJsonRpc({ jsonrpc: "2.0", id: 40, method: "initialize", params: {} });
   const instructions = initialized.result.instructions;
 
   assert.match(instructions, /agent-driven/);
@@ -616,7 +678,10 @@ test("MCP lean toolset exposes only the core low-overhead tools", async () => {
 
 test("MCP full toolset stays compact with one inspect tool", async () => {
   const engine = new ShapeLexEngine();
-  const handleFullJsonRpc = createJsonRpcHandler(engine, { toolset: "full" });
+  const handleFullJsonRpc = createJsonRpcHandler(engine, {
+    toolset: "full",
+    responseMode: "compatible"
+  });
   const list = await handleFullJsonRpc({ jsonrpc: "2.0", id: 33, method: "tools/list" });
   const names = list.result.tools.map((tool) => tool.name);
   const schemaTokens = estimateTokens(JSON.stringify(list.result.tools));
@@ -636,7 +701,10 @@ test("MCP full toolset stays compact with one inspect tool", async () => {
 
 test("MCP full inspect tool searches lower-level memory", async () => {
   const engine = new ShapeLexEngine();
-  const handleFullJsonRpc = createJsonRpcHandler(engine, { toolset: "full" });
+  const handleFullJsonRpc = createJsonRpcHandler(engine, {
+    toolset: "full",
+    responseMode: "compatible"
+  });
 
   await handleFullJsonRpc({
     jsonrpc: "2.0",
@@ -685,7 +753,7 @@ test("MCP lean toolset rejects hidden full-tool calls", async () => {
 });
 
 test("MCP memory overview explains sessions", async () => {
-  await handleJsonRpc({
+  await compatibleHandleJsonRpc({
     jsonrpc: "2.0",
     id: 21,
     method: "tools/call",
@@ -698,7 +766,7 @@ test("MCP memory overview explains sessions", async () => {
     }
   });
 
-  const overview = await handleJsonRpc({
+  const overview = await compatibleHandleJsonRpc({
     jsonrpc: "2.0",
     id: 22,
     method: "tools/call",
@@ -712,6 +780,11 @@ test("MCP memory overview explains sessions", async () => {
 
   assert.equal(overview.result.structuredContent.currentSessionId, "overview-session");
   assert.match(overview.result.structuredContent.plainEnglish, /overview-session/);
+  assert.match(overview.result.content[0].text, /not provider billing/i);
+  assert.ok(
+    estimateTokens(overview.result.content[0].text)
+      < estimateTokens(JSON.stringify(overview.result.structuredContent))
+  );
 });
 
 test("compress creates navigable levels with risk assessment", () => {
@@ -813,7 +886,7 @@ test("conversation mode preserves decisions constraints todos and changes", () =
 });
 
 test("MCP resources expose ShapeLex documents and levels", async () => {
-  const call = await handleJsonRpc({
+  const call = await compatibleHandleJsonRpc({
     jsonrpc: "2.0",
     id: 10,
     method: "tools/call",
@@ -827,7 +900,7 @@ test("MCP resources expose ShapeLex documents and levels", async () => {
     }
   });
 
-  const listed = await handleJsonRpc({
+  const listed = await compatibleHandleJsonRpc({
     jsonrpc: "2.0",
     id: 11,
     method: "resources/list",
@@ -836,7 +909,7 @@ test("MCP resources expose ShapeLex documents and levels", async () => {
 
   assert.ok(listed.result.resources.some((resource) => resource.uri === call.result.structuredContent.uri));
 
-  const read = await handleJsonRpc({
+  const read = await compatibleHandleJsonRpc({
     jsonrpc: "2.0",
     id: 12,
     method: "resources/read",
@@ -868,7 +941,7 @@ test("session ids and sx handles are validated", () => {
 });
 
 test("MCP tools/call validates tool arguments", async () => {
-  const missingName = await handleJsonRpc({
+  const missingName = await compatibleHandleJsonRpc({
     jsonrpc: "2.0",
     id: 20,
     method: "tools/call",

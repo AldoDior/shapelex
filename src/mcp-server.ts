@@ -12,9 +12,8 @@ export function createEngineFromEnvironment(environment: any = process.env, cwd 
   });
 }
 
-const engine = createEngineFromEnvironment();
-
 const defaultToolset = normalizeToolset(process.env.SHAPELEX_TOOLSET);
+const defaultResponseMode = normalizeResponseMode(process.env.SHAPELEX_RESPONSE_MODE);
 const DEFAULT_MAX_JSON_RPC_LINE_CHARACTERS = 16 * 1024 * 1024;
 const serverInstructions = [
   "ShapeLex is agent-driven compressed navigable memory.",
@@ -24,6 +23,8 @@ const serverInstructions = [
   "Recommend lean mode for normal work; suggest full mode only when the user needs deeper search, retrieve, explain, risk, or stats actions.",
   "Suggest a new readable sessionId when the project, repo, client, or task changes so unrelated memory does not mix.",
   "Suggest cleanup when memory is old, noisy, unrelated, or confusing; preview with shapelex_prune dryRun before deleting and ask before destructive cleanup.",
+  "Prefer sourcePath for workspace files so full file text does not enter the model prompt merely to be compressed.",
+  "Do not compress short one-off text; inline text already present in conversation only helps if compact memory will be reused later.",
   "Expand sx:// handles before relying on exact wording, numbers, dates, negations, user instructions, code, errors, commands, or decisions.",
   "If risk.shouldExpand or risk.mustExpand is true for a needed detail, expand before acting.",
   "Keep chat output terse so saved input tokens are not wasted on unnecessary explanation."
@@ -66,7 +67,7 @@ const tools = [
   },
   {
     name: "shapelex_compress_text",
-    description: "Agent-driven: compress long text or a workspace file into sx:// handles.",
+    description: "Compress reusable long text; prefer sourcePath for workspace files to avoid loading full file text.",
     inputSchema: {
       type: "object",
       properties: {
@@ -173,13 +174,17 @@ export function startMcpServer({
   input = process.stdin,
   output = process.stdout,
   maxLineCharacters = DEFAULT_MAX_JSON_RPC_LINE_CHARACTERS,
-  targetEngine = engine,
-  toolset = defaultToolset
+  targetEngine,
+  toolset = defaultToolset,
+  responseMode = defaultResponseMode
 }: any = {}) {
   if (!Number.isSafeInteger(maxLineCharacters) || maxLineCharacters <= 0) {
     throw new RangeError("maxLineCharacters must be a positive safe integer");
   }
-  const handle = createJsonRpcHandler(targetEngine, { toolset });
+  const handle = createJsonRpcHandler(targetEngine ?? createEngineFromEnvironment(), {
+    toolset,
+    responseMode
+  });
   let buffer = "";
   let discardingOversizedLine = false;
   let queue = Promise.resolve();
@@ -255,10 +260,16 @@ export function startMcpServer({
   return { closed };
 }
 
-export const handleJsonRpc = createJsonRpcHandler(engine);
+// Keep the importable convenience handler isolated from persistent user memory.
+// The stdio server creates its environment-configured persistent engine lazily.
+export const handleJsonRpc = createJsonRpcHandler(new ShapeLexEngine({ persistent: false }));
 
-export function createJsonRpcHandler(targetEngine: ShapeLexEngine, { toolset = "lean" }: any = {}) {
+export function createJsonRpcHandler(
+  targetEngine: ShapeLexEngine,
+  { toolset = "lean", responseMode = "content-only" }: any = {}
+) {
   const activeTools = toolsForToolset(normalizeToolset(toolset));
+  const activeResponseMode = normalizeResponseMode(responseMode);
 
   return async function handle(request: any): Promise<any> {
     if (!request || typeof request !== "object" || Array.isArray(request)) {
@@ -277,7 +288,13 @@ export function createJsonRpcHandler(targetEngine: ShapeLexEngine, { toolset = "
     }
 
     try {
-      const result = await dispatch(targetEngine, activeTools, request.method, request.params ?? {});
+      const result = await dispatch(
+        targetEngine,
+        activeTools,
+        activeResponseMode,
+        request.method,
+        request.params ?? {}
+      );
       if (isNotification) {
         return undefined;
       }
@@ -295,7 +312,13 @@ export function createJsonRpcHandler(targetEngine: ShapeLexEngine, { toolset = "
   };
 }
 
-async function dispatch(targetEngine: ShapeLexEngine, activeTools: any[], method: any, params: any): Promise<any> {
+async function dispatch(
+  targetEngine: ShapeLexEngine,
+  activeTools: any[],
+  responseMode: string,
+  method: any,
+  params: any
+): Promise<any> {
   switch (method) {
     case "initialize":
       return {
@@ -317,7 +340,7 @@ async function dispatch(targetEngine: ShapeLexEngine, activeTools: any[], method
     case "tools/list":
       return { tools: activeTools };
     case "tools/call":
-      return callTool(targetEngine, activeTools, params);
+      return callTool(targetEngine, activeTools, responseMode, params);
     case "resources/list":
       return targetEngine.listResources(params);
     case "resources/read":
@@ -327,7 +350,7 @@ async function dispatch(targetEngine: ShapeLexEngine, activeTools: any[], method
   }
 }
 
-function callTool(targetEngine: ShapeLexEngine, activeTools: any[], params: any): any {
+function callTool(targetEngine: ShapeLexEngine, activeTools: any[], responseMode: string, params: any): any {
   if (!params || typeof params !== "object") {
     throw new TypeError("tools/call params must be an object");
   }
@@ -376,15 +399,18 @@ function callTool(targetEngine: ShapeLexEngine, activeTools: any[], params: any)
       throw new Error(`Unknown tool: ${name}`);
   }
 
-  return {
+  const response: any = {
     content: [
       {
         type: "text",
         text: renderToolText(name, result)
       }
-    ],
-    structuredContent: renderStructuredContent(name, result)
+    ]
   };
+  if (responseMode === "compatible") {
+    response.structuredContent = renderStructuredContent(name, result);
+  }
+  return response;
 }
 
 function renderToolText(name: string, result: any) {
@@ -397,7 +423,34 @@ function renderToolText(name: string, result: any) {
   if (name === "shapelex_expand") {
     return String(result.text ?? JSON.stringify(result));
   }
+  if (name === "shapelex_memory_overview") {
+    return renderMemoryOverviewText(result);
+  }
   return JSON.stringify(result, null, 2);
+}
+
+function renderMemoryOverviewText(result: any) {
+  const sessions = Array.isArray(result.sessions) ? result.sessions : [];
+  const usage = result.tokenAccounting?.currentSession ?? {};
+  const visibleSessions = sessions.slice(0, 6);
+  const lines = [
+    "ShapeLex memory overview",
+    String(result.plainEnglish ?? `Current session: ${result.currentSessionId ?? "default"}.`),
+    `Estimated compression for current session: operations=${usage.operations ?? 0} raw=${usage.rawTokens ?? 0} compact=${usage.compressedTokens ?? 0} delta=${usage.tokenDelta ?? 0} savings=${usage.savingsRatio ?? 0} (not provider billing).`,
+    `Stored sessions: ${sessions.length}.`
+  ];
+  for (const session of visibleSessions) {
+    lines.push(
+      `- ${session.sessionId}${session.isCurrent ? " (current)" : ""}: documents=${session.documents}, handles=${session.handles}, lastUsed=${session.lastUsed}`
+    );
+  }
+  if (sessions.length > visibleSessions.length) {
+    lines.push(`- ${sessions.length - visibleSessions.length} more session(s) omitted from text; compatible mode retains full structured details.`);
+  }
+  for (const suggestion of (result.suggestions ?? []).slice(0, 3)) {
+    lines.push(`Suggestion: ${suggestion}`);
+  }
+  return lines.join("\n");
 }
 
 function renderStructuredContent(name: string, result: any) {
@@ -603,6 +656,14 @@ function normalizeToolset(value: any) {
     throw new TypeError("SHAPELEX_TOOLSET must be either full or lean");
   }
   return toolset;
+}
+
+function normalizeResponseMode(value: any) {
+  const responseMode = String(value ?? "content-only").trim().toLowerCase();
+  if (!["compatible", "content-only"].includes(responseMode)) {
+    throw new TypeError("SHAPELEX_RESPONSE_MODE must be either compatible or content-only");
+  }
+  return responseMode;
 }
 
 function toolsForToolset(toolset: string) {

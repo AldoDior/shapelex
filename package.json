@@ -1,6 +1,6 @@
 {
   "name": "shapelex-mcp",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Local MCP navigable memory for reducing LLM read-token usage.",
   "type": "module",
   "main": "./dist/src/shapelex.js",

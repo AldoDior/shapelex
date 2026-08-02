@@ -124,7 +124,9 @@ const scenarios: Scenario[] = [
 ];
 
 export async function runE2EEval() {
-  const handleJsonRpc = createJsonRpcHandler(new ShapeLexEngine());
+  const handleJsonRpc = createJsonRpcHandler(new ShapeLexEngine(), {
+    responseMode: "compatible"
+  });
   const fullToolSchemaTokens = await toolSchemaTokens("full");
   const results = [];
 

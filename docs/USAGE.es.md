@@ -73,11 +73,14 @@ La configuración recomendada usa:
 
 ```text
 SHAPELEX_STORE_DIR=.shapelex
+SHAPELEX_RESPONSE_MODE=content-only
 ```
 
 ShapeLex usa el modo lean por defecto. Eso mantiene pocas herramientas visibles para la IA y ayuda a reducir tokens.
 
 Usa `SHAPELEX_TOOLSET=full` solo si quieres la herramienta compacta `shapelex_inspect` para acciones de búsqueda, recuperación, explicación, riesgo y estadísticas.
+
+`SHAPELEX_RESPONSE_MODE=content-only` es el modo predeterminado. Conserva el resultado de texto MCP requerido y omite la copia estructurada opcional. Si una integración necesita leer `structuredContent` mediante código, configura explícitamente `SHAPELEX_RESPONSE_MODE=compatible`.
 
 `SHAPELEX_STORE_DIR=.shapelex` indica donde se guarda la memoria local.
 
@@ -109,6 +112,7 @@ Usa esta variable:
 
 ```text
 SHAPELEX_STORE_DIR=.shapelex-codex
+SHAPELEX_RESPONSE_MODE=content-only
 ```
 
 Ejemplo de configuración MCP para Codex:
