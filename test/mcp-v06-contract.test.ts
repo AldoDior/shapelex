@@ -111,7 +111,9 @@ test("MCP reports changed file-backed sources with the typed stale-source code",
   context.after(() => fs.rmSync(workspaceRoot, { recursive: true, force: true }));
   const sourcePath = path.join(workspaceRoot, "source.txt");
   fs.writeFileSync(sourcePath, "The approved release number is 42 and must not change.", "utf8");
-  const handle = createJsonRpcHandler(new ShapeLexEngine({ workspaceRoot }));
+  const handle = createJsonRpcHandler(new ShapeLexEngine({ workspaceRoot }), {
+    responseMode: "compatible"
+  });
 
   const compressed = await handle({
     jsonrpc: "2.0",

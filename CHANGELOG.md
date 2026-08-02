@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## [0.6.2] - 2026-08-02
+
+- Made token-efficient `content-only` MCP responses the default while retaining explicit `compatible` mode for programmatic integrations that require `structuredContent`.
+- Compacted memory-overview responses and documented measured MCP response overhead.
+- Labeled internal token accounting as gross raw-versus-compressed text estimates rather than provider or monetary savings.
+- Isolated importable MCP handlers and tests from persistent user memory through lazy environment-backed engine initialization.
+
 ## [0.6.1] - 2026-08-01
 
 - Added bilingual quick-start guides for Codex, Cursor, and Claude Code, with prominent README links and safe upgrade instructions.

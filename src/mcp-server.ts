@@ -266,7 +266,7 @@ export const handleJsonRpc = createJsonRpcHandler(new ShapeLexEngine({ persisten
 
 export function createJsonRpcHandler(
   targetEngine: ShapeLexEngine,
-  { toolset = "lean", responseMode = "compatible" }: any = {}
+  { toolset = "lean", responseMode = "content-only" }: any = {}
 ) {
   const activeTools = toolsForToolset(normalizeToolset(toolset));
   const activeResponseMode = normalizeResponseMode(responseMode);
@@ -659,7 +659,7 @@ function normalizeToolset(value: any) {
 }
 
 function normalizeResponseMode(value: any) {
-  const responseMode = String(value ?? "compatible").trim().toLowerCase();
+  const responseMode = String(value ?? "content-only").trim().toLowerCase();
   if (!["compatible", "content-only"].includes(responseMode)) {
     throw new TypeError("SHAPELEX_RESPONSE_MODE must be either compatible or content-only");
   }

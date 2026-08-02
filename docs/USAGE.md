@@ -132,7 +132,7 @@ $env:SHAPELEX_RESPONSE_MODE="content-only"
 npm start
 ```
 
-The default `compatible` mode retains `structuredContent` for programmatic integrations. `content-only` preserves the required MCP text content and is recommended when the client uses ShapeLex through the model rather than parsing structured results itself.
+The default `content-only` mode preserves the required MCP text content and avoids returning an optional structured duplicate. Programmatic integrations that require `structuredContent` can explicitly set `SHAPELEX_RESPONSE_MODE=compatible`.
 
 The live Codex benchmark showed why this matters: exposing too many MCP tools can cost more tokens than raw context. ShapeLex defaults to lean, and full mode keeps the extra surface consolidated into one compact inspect tool.
 

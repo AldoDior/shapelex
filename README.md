@@ -104,7 +104,7 @@ npx -y shapelex-mcp
 
 ShapeLex defaults to the lean toolset because that is the normal token-saving mode. Use `SHAPELEX_TOOLSET=full` only when you want the compact `shapelex_inspect` tool for lower-level search, retrieve, explain, risk, and stats actions.
 
-For token-sensitive AI clients, set `SHAPELEX_RESPONSE_MODE=content-only`. This keeps the required MCP text result while omitting the optional structured copy. The default `compatible` mode retains `structuredContent` for integrations that read it programmatically.
+ShapeLex defaults to `SHAPELEX_RESPONSE_MODE=content-only`. This keeps the required MCP text result while omitting the optional structured copy. Programmatic integrations that require `structuredContent` can explicitly set `SHAPELEX_RESPONSE_MODE=compatible`.
 
 In normal use, let the agent recommend the mode. It should keep you on lean unless full mode would help inspect memory more deeply.
 
@@ -406,7 +406,7 @@ npx -y shapelex-mcp
 
 ShapeLex usa el modo lean por defecto porque es el modo normal para ahorrar tokens. Usa `SHAPELEX_TOOLSET=full` solo cuando quieras la herramienta compacta `shapelex_inspect` para acciones de búsqueda, recuperación, explicación, riesgo y estadísticas.
 
-Para clientes de IA sensibles al uso de tokens, configura `SHAPELEX_RESPONSE_MODE=content-only`. El modo predeterminado `compatible` conserva `structuredContent` para integraciones que lo leen mediante código.
+ShapeLex usa `SHAPELEX_RESPONSE_MODE=content-only` de forma predeterminada. Este modo conserva el resultado de texto MCP requerido y omite la copia estructurada opcional. Las integraciones que necesiten `structuredContent` pueden configurar explícitamente `SHAPELEX_RESPONSE_MODE=compatible`.
 
 En el uso normal, deja que el agente recomiende el modo. Debería mantenerte en lean salvo que full ayude a inspeccionar la memoria con más detalle.
 

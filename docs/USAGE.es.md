@@ -80,7 +80,7 @@ ShapeLex usa el modo lean por defecto. Eso mantiene pocas herramientas visibles 
 
 Usa `SHAPELEX_TOOLSET=full` solo si quieres la herramienta compacta `shapelex_inspect` para acciones de búsqueda, recuperación, explicación, riesgo y estadísticas.
 
-`SHAPELEX_RESPONSE_MODE=content-only` conserva el resultado de texto MCP requerido y omite la copia estructurada opcional. Usa el modo predeterminado `compatible` si una integración necesita leer `structuredContent` mediante código.
+`SHAPELEX_RESPONSE_MODE=content-only` es el modo predeterminado. Conserva el resultado de texto MCP requerido y omite la copia estructurada opcional. Si una integración necesita leer `structuredContent` mediante código, configura explícitamente `SHAPELEX_RESPONSE_MODE=compatible`.
 
 `SHAPELEX_STORE_DIR=.shapelex` indica donde se guarda la memoria local.
 

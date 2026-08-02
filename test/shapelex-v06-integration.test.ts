@@ -330,7 +330,10 @@ test("v0.6 migrates a v1 text store without changing exact sx handles", () => {
 
 test("MCP v0.6 exposes compact deduplication and fingerprint context metadata", async () => {
   const engine = new ShapeLexEngine();
-  const handle = createJsonRpcHandler(engine, { toolset: "lean" });
+  const handle = createJsonRpcHandler(engine, {
+    toolset: "lean",
+    responseMode: "compatible"
+  });
   const input = {
     sessionId: "mcp-v06",
     text: exactParagraph
